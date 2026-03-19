@@ -8,6 +8,7 @@ import { SimAction } from '../../types';
 import {
     Alien, BookOpen, Lightning, Globe, ChatCircleDots, WarningCircle,
 } from '@phosphor-icons/react';
+import StoryAttachments from './StoryAttachments';
 
 const TONE_STYLES: Record<string, { accent: string; label: string }> = {
     vengeful: { accent: '#b85050', label: '复仇' },
@@ -30,7 +31,18 @@ const NarrativeReplayOverlay: React.FC<{
     const narrative = action.narrative;
     const tone = narrative?.emotionalTone;
     const toneStyle = tone ? TONE_STYLES[tone] : null;
-    const accent = toneStyle?.accent || '#8b7bb8';
+    const storyLabel = action.storyKind === 'main_plot'
+        ? '主线剧情'
+        : action.storyKind === 'character_drama'
+            ? '角色剧情'
+            : action.storyKind === 'system'
+                ? '系统播报'
+                : null;
+    const accent = action.storyKind === 'main_plot'
+        ? '#b86c3d'
+        : action.storyKind === 'system'
+            ? '#7f8c9b'
+            : toneStyle?.accent || '#8b7bb8';
 
     return (
         <div className="absolute inset-0 flex items-center justify-center z-50 px-4"
@@ -44,10 +56,15 @@ const NarrativeReplayOverlay: React.FC<{
                 <div className="retro-titlebar" style={{
                     background: `linear-gradient(180deg, ${accent}cc, ${accent})`,
                 }}>
-                    <span>replay.exe — {currentIndex + 1}/{actions.length}</span>
-                    {toneStyle && (
-                        <span style={{ fontSize: 8, opacity: 0.8 }}>[ {toneStyle.label} ]</span>
-                    )}
+                    <span>replay.exe - {currentIndex + 1}/{actions.length}</span>
+                    <div className="flex items-center gap-1.5">
+                        {storyLabel && (
+                            <span style={{ fontSize: 8, opacity: 0.9 }}>[ {storyLabel} ]</span>
+                        )}
+                        {toneStyle && (
+                            <span style={{ fontSize: 8, opacity: 0.8 }}>[ {toneStyle.label} ]</span>
+                        )}
+                    </div>
                 </div>
 
                 <div style={{ padding: 12 }}>
@@ -66,10 +83,36 @@ const NarrativeReplayOverlay: React.FC<{
                                 : <Alien size={18} weight="bold" style={{ color: '#aaa' }} />}
                         </div>
                         <div>
-                            <p style={{ fontSize: 12, fontWeight: 700, color: accent }}>{action.actor}</p>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                                <p style={{ fontSize: 12, fontWeight: 700, color: accent }}>{action.actor}</p>
+                                {storyLabel && (
+                                    <span style={{
+                                        fontSize: 8,
+                                        fontWeight: 700,
+                                        color: accent,
+                                        border: `1px solid ${accent}55`,
+                                        borderRadius: 999,
+                                        padding: '1px 5px',
+                                        background: `${accent}12`,
+                                    }}>
+                                        {storyLabel}
+                                    </span>
+                                )}
+                            </div>
                             <p style={{ fontSize: 9, color: '#aaa', fontFamily: 'monospace' }}>第 {action.turnNumber} 回合</p>
                         </div>
                     </div>
+
+                    {action.headline && (
+                        <div className="retro-inset" style={{ padding: '6px 8px', marginBottom: 8 }}>
+                            <p style={{ fontSize: 9, fontWeight: 600, color: accent, marginBottom: 3 }}>
+                                剧情标题
+                            </p>
+                            <p style={{ fontSize: 12, color: '#403847', lineHeight: 1.45, fontWeight: 700 }}>
+                                {action.headline}
+                            </p>
+                        </div>
+                    )}
 
                     {/* Inner thought */}
                     {(narrative?.innerThought || action.reasoning) && (
@@ -105,6 +148,8 @@ const NarrativeReplayOverlay: React.FC<{
                         </p>
                         <p style={{ fontSize: 11, color: '#444', lineHeight: 1.4 }}>{action.immediateResult}</p>
                     </div>
+
+                    <StoryAttachments attachments={action.attachments} />
 
                     {/* Comment on world */}
                     {narrative?.commentOnWorld && (

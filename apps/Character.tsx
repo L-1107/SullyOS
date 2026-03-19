@@ -10,6 +10,7 @@ import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { DB } from '../utils/db';
 import { ContextBuilder } from '../utils/context';
+import { formatLifeSimResetCardForContext } from '../utils/lifeSimChatCard';
 import { DEFAULT_ARCHIVE_PROMPTS } from '../components/chat/ChatConstants';
 import ImpressionPanel from '../components/character/ImpressionPanel';
 import MemoryArchivist from '../components/character/MemoryArchivist';
@@ -429,7 +430,9 @@ const Character: React.FC = () => {
                     else if ((m.type as string) === 'score_card') {
                         try {
                             const card = m.metadata?.scoreCard || JSON.parse(m.content);
-                            if (card?.type === 'guidebook_card') {
+                            if (card?.type === 'lifesim_reset_card') {
+                                content = formatLifeSimResetCardForContext(card, formData.name);
+                            } else if (card?.type === 'guidebook_card') {
                                 const diff = (card.finalAffinity ?? 0) - (card.initialAffinity ?? 0);
                                 content = `[攻略本游戏结算] ${formData.name}和${userProfile.name}玩了一局"攻略本"恋爱小游戏（${card.rounds || '?'}回合）。结局：「${card.title || '???'}」 好感度变化：${card.initialAffinity} → ${card.finalAffinity}（${diff >= 0 ? '+' : ''}${diff}） ${formData.name}的评语：${card.charVerdict || '无'} ${formData.name}对${userProfile.name}的新发现：${card.charNewInsight || '无'}`;
                             } else if (card?.type === 'whiteday_card') {
@@ -549,7 +552,9 @@ const Character: React.FC = () => {
               else if ((m.type as string) === 'score_card') {
                   try {
                       const card = m.metadata?.scoreCard || JSON.parse(m.content);
-                      if (card?.type === 'guidebook_card') {
+                      if (card?.type === 'lifesim_reset_card') {
+                          content = formatLifeSimResetCardForContext(card, charName);
+                      } else if (card?.type === 'guidebook_card') {
                           const diff = (card.finalAffinity ?? 0) - (card.initialAffinity ?? 0);
                           content = `[攻略本结算] 结局「${card.title || '???'}」好感${diff >= 0 ? '+' : ''}${diff}`;
                       } else if (card?.type === 'whiteday_card') {

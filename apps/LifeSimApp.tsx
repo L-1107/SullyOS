@@ -7,7 +7,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useOS } from '../context/OSContext';
 import {
     LifeSimState, SimAction, SimActionType, SimEventType,
-    CharacterProfile,
+    CharacterProfile, SimNPC,
 } from '../types';
 import {
     createNewLifeSimState, createNPC, applyAddNPC,
@@ -16,9 +16,13 @@ import {
     getTodayFestival, SEASON_INFO, TIME_INFO, WEATHER_INFO,
 } from '../utils/lifeSimEngine';
 import {
-    buildCharTurnSystemPrompt, formatRecentChatForSim, buildUserActionDescription, CharDecision, normalizeCharDecision
+    buildCharTurnSystemPrompt, formatRecentChatForSim, buildUserActionDescription, CharDecision, normalizeCharDecision,
+    buildWorldDramaPlannerPrompt, normalizeWorldDramaDecision, buildFallbackWorldDramaDecision,
 } from '../utils/lifeSimPrompts';
 import { runAutonomousTurn } from '../utils/lifeSimAutonomous';
+import { materializeStoryAttachments } from '../utils/lifeSimStoryAttachments';
+import { createLifeSimResetCardData } from '../utils/lifeSimChatCard';
+import { buildFallbackLifeSimSessionSummary, buildLifeSimSessionSummaryPrompt } from '../utils/lifeSimSessionSummary';
 // Offline simulation removed — random events didn't match the theme
 import { extractJson, safeFetchJson } from '../utils/safeApi';
 import { DB } from '../utils/db';
@@ -51,10 +55,14 @@ import ActionPanel, { StirAction, AddNpcAction } from './lifesim/ActionPanel';
 import NarrativeReplayOverlay from './lifesim/ReplayOverlay';
 // OfflineRecapOverlay removed
 import GameOverOverlay from './lifesim/GameOverOverlay';
+import LifeSimSettingsPanel from './lifesim/LifeSimSettingsPanel';
+import NPCEditorPanel from './lifesim/NPCEditorPanel';
+import ResetCityDialog from './lifesim/ResetCityDialog';
 
 // ── 常量 ────────────────────────────────────────────────────────
 
 const CHAR_TURN_COUNT_RANGE = [1, 3] as const;
+const MAIN_PLOT_WATCH_CHANCE = 0.45;
 const genId = () => Math.random().toString(36).slice(2, 10);
 
 // ── API调用 ──────────────────────────────────────────────────────
@@ -111,6 +119,10 @@ const LifeSimApp: React.FC = () => {
     const [processingMsg, setProcessingMsg] = useState('');
     const [showGameOver, setShowGameOver] = useState(false);
     const [festivalAnnounce, setFestivalAnnounce] = useState<string>('');
+    const [showSettings, setShowSettings] = useState(false);
+    const [showResetDialog, setShowResetDialog] = useState(false);
+    const [editingNpc, setEditingNpc] = useState<SimNPC | null>(null);
+    const [isResetting, setIsResetting] = useState(false);
 
     const [activeTab, setActiveTab] = useState<'npcs'|'drama'|'relations'>('npcs');
     const [actionPanel, setActionPanel] = useState<'none'|'stir'|'add'>('none');
@@ -129,13 +141,13 @@ const LifeSimApp: React.FC = () => {
                         saved.currentActorId = 'user';
                         saved.charQueue = [];
                     }
+                    if (saved.replayPending && saved.replayPending.length > 0) {
+                        saved.replayPending = [];
+                    }
 
                     saved.lastActiveTimestamp = Date.now();
                     await DB.saveLifeSimState(saved);
                     setGameState(saved);
-                    if (saved.replayPending && saved.replayPending.length > 0) {
-                        setShowReplay(true); setReplayIndex(0);
-                    }
                 } else {
                     const newState = createNewLifeSimState();
                     newState.lastActiveTimestamp = Date.now();
@@ -154,6 +166,85 @@ const LifeSimApp: React.FC = () => {
         setGameState(s);
         await DB.saveLifeSimState(s);
     }, []);
+
+    const resolveParticipantCharIds = useCallback((state: LifeSimState | null) => {
+        const allIds = characters.filter(char => !!char.id).map(char => char.id);
+        if (!state || state.participantCharIds === undefined) return allIds;
+        const validIds = new Set(allIds);
+        return state.participantCharIds.filter(id => validIds.has(id));
+    }, [characters]);
+
+    const getParticipatingCharacters = useCallback((state: LifeSimState | null) => {
+        const allowedIds = new Set(resolveParticipantCharIds(state));
+        return characters.filter(char => !!char.id && allowedIds.has(char.id));
+    }, [characters, resolveParticipantCharIds]);
+
+    const buildMainPlotAction = useCallback(async (state: LifeSimState) => {
+        if (!userProfile) return null;
+
+        setProcessingMsg('主线编剧室正在加戏...');
+        const fallback = buildFallbackWorldDramaDecision(state);
+
+        try {
+            let decision = fallback;
+            const canUseApi = !!(apiConfig?.baseUrl && apiConfig?.apiKey && apiConfig?.model);
+
+            if (canUseApi) {
+                const raw = await callCharAI(
+                    { baseUrl: apiConfig.baseUrl, apiKey: apiConfig.apiKey, model: apiConfig.model },
+                    buildWorldDramaPlannerPrompt(userProfile, state, state.actionLog)
+                );
+                let rawJson = extractJson(raw);
+                if (Array.isArray(rawJson)) rawJson = rawJson[0];
+                const normalized = normalizeWorldDramaDecision(rawJson);
+                decision = {
+                    ...fallback,
+                    ...normalized,
+                    attachments: normalized.attachments.length > 0 ? normalized.attachments : fallback.attachments,
+                };
+            }
+
+            const involvedNpcIds = decision.involvedNpcIds
+                .filter(id => state.npcs.some(npc => npc.id === id))
+                .slice(0, 4);
+            const fallbackNpcIds = fallback.involvedNpcIds.slice(0, 4);
+            const finalNpcIds = involvedNpcIds.length > 0 ? involvedNpcIds : fallbackNpcIds;
+            const actionResult = applyTriggerEvent(
+                state,
+                decision.eventType,
+                finalNpcIds,
+                decision.eventDescription || fallback.eventDescription
+            );
+
+            const mainPlotAction: SimAction = {
+                id: genId(),
+                turnNumber: state.turnNumber,
+                actor: '主线编剧室',
+                actorAvatar: '🎬',
+                actorId: 'story',
+                type: 'TRIGGER_EVENT',
+                headline: decision.headline || fallback.headline,
+                description: decision.eventDescription || fallback.eventDescription,
+                immediateResult: decision.immediateResult || actionResult.immediateResult,
+                narrative: decision.narrative || fallback.narrative,
+                reasoning: decision.narrative?.innerThought || fallback.narrative.innerThought,
+                storyKind: 'main_plot',
+                involvedNpcIds: finalNpcIds,
+                attachments: materializeStoryAttachments(decision.attachments.length > 0 ? decision.attachments : fallback.attachments),
+                timestamp: Date.now(),
+            };
+
+            return {
+                newState: {
+                    ...actionResult.newState,
+                    actionLog: [...actionResult.newState.actionLog, mainPlotAction],
+                },
+                mainPlotAction,
+            };
+        } finally {
+            setProcessingMsg('');
+        }
+    }, [apiConfig, userProfile]);
 
     // ── 结束回合 ────────────────────────────────────────────────
 
@@ -204,7 +295,8 @@ const LifeSimApp: React.FC = () => {
         }
 
         // 5. 决定CHAR回合
-        const availableChars = characters.filter(c => c.id);
+        const participantIds = new Set(resolveParticipantCharIds(gameState));
+        const availableChars = characters.filter(c => c.id && participantIds.has(c.id));
         const charCount = Math.floor(
             Math.random() * (CHAR_TURN_COUNT_RANGE[1] - CHAR_TURN_COUNT_RANGE[0] + 1)
         ) + CHAR_TURN_COUNT_RANGE[0];
@@ -218,7 +310,218 @@ const LifeSimApp: React.FC = () => {
         setActionPanel('none');
 
         if (charQueue.length > 0) await runCharTurns(s);
-    }, [gameState, characters, saveState]);
+    }, [gameState, characters, resolveParticipantCharIds, saveState]);
+
+    const finalizeTurn = useCallback(async (
+        baseState: LifeSimState,
+        options?: {
+            replaySeed?: SimAction[];
+            skipCharTurns?: boolean;
+            captureNonCharReplay?: boolean;
+        }
+    ) => {
+        const replayActions: SimAction[] = [...(options?.replaySeed || [])];
+        const captureReplay = !!options?.captureNonCharReplay;
+        const pushReplay = (action: SimAction) => {
+            if (captureReplay) replayActions.push(action);
+        };
+
+        const { newState: s1, events, festival } = advanceTimeOfDay(baseState);
+        let s = deepClone(s1);
+
+        for (const ev of events) {
+            const sysAction: SimAction = {
+                id: genId(), turnNumber: s.turnNumber,
+                actor: '时光', actorAvatar: '', actorId: 'system',
+                type: 'DO_NOTHING', description: ev, immediateResult: ev, storyKind: 'system', timestamp: Date.now(),
+            };
+            s.actionLog = [...s.actionLog, sysAction];
+            pushReplay(sysAction);
+        }
+
+        if (festival) {
+            setFestivalAnnounce(`${festival.name}：${festival.description}`);
+            setTimeout(() => setFestivalAnnounce(''), 4000);
+        }
+
+        const autoResult = runAutonomousTurn(s);
+        s = autoResult.newState;
+        for (const autoAction of autoResult.events) {
+            s.actionLog = [...s.actionLog, autoAction];
+            pushReplay(autoAction);
+        }
+
+        const settled = settlePendingEffects(s);
+        s = settled.newState;
+        for (const ev of settled.events) {
+            const sysAction: SimAction = {
+                id: genId(), turnNumber: s.turnNumber,
+                actor: '连锁', actorAvatar: '', actorId: 'system',
+                type: 'TRIGGER_EVENT', description: ev, immediateResult: ev, storyKind: 'system', timestamp: Date.now(),
+            };
+            s.actionLog = [...s.actionLog, sysAction];
+            pushReplay(sysAction);
+        }
+
+        const { over, reason } = checkGameOver(s);
+        if (over) {
+            s.gameOver = true;
+            s.gameOverReason = reason;
+            s.replayPending = replayActions;
+            await saveState(s);
+            setActionPanel('none');
+            if (replayActions.length > 0) { setShowReplay(true); setReplayIndex(0); }
+            setShowGameOver(true);
+            return { state: s, replayActions, shouldRunCharTurns: false };
+        }
+
+        if (options?.skipCharTurns) {
+            s.charQueue = [];
+            s.currentActorId = 'user';
+            s = advanceTurn(s);
+            s.replayPending = replayActions;
+            await saveState(s);
+            setActionPanel('none');
+            if (replayActions.length > 0) { setShowReplay(true); setReplayIndex(0); }
+            return { state: s, replayActions, shouldRunCharTurns: false };
+        }
+
+        const participantIds = new Set(resolveParticipantCharIds(baseState));
+        const availableChars = characters.filter(c => c.id && participantIds.has(c.id));
+        const charCount = Math.floor(
+            Math.random() * (CHAR_TURN_COUNT_RANGE[1] - CHAR_TURN_COUNT_RANGE[0] + 1)
+        ) + CHAR_TURN_COUNT_RANGE[0];
+        const shuffled = [...availableChars].sort(() => Math.random() - 0.5);
+        const charQueue = shuffled.slice(0, charCount).map(c => c.id);
+        s.charQueue = charQueue;
+        s.currentActorId = charQueue[0] || 'user';
+        s = advanceTurn(s);
+
+        if (charQueue.length === 0) {
+            s.replayPending = replayActions;
+            await saveState(s);
+            setActionPanel('none');
+            if (replayActions.length > 0) { setShowReplay(true); setReplayIndex(0); }
+            return { state: s, replayActions, shouldRunCharTurns: false };
+        }
+
+        await saveState(s);
+        setActionPanel('none');
+        return { state: s, replayActions, shouldRunCharTurns: true };
+    }, [characters, resolveParticipantCharIds, saveState]);
+
+    // ── CHAR回合引擎 ──────────────────────────────────────────
+
+    const runCharTurns = useCallback(async (initialState: LifeSimState, seededReplayActions: SimAction[] = []) => {
+        if (!userProfile) return;
+        let s = deepClone(initialState);
+        const replayActions: SimAction[] = [...seededReplayActions];
+        const canUseApi = !!(apiConfig?.baseUrl && apiConfig?.apiKey && apiConfig?.model);
+
+        for (const charId of s.charQueue) {
+            const char = characters.find(c => c.id === charId);
+            if (!char) continue;
+            s.isProcessingCharTurn = true; s.currentActorId = charId;
+            setProcessingMsg(`${char.name} 正在思考……`);
+            await saveState(s);
+
+            try {
+                let rawJson: any = null;
+                let decision: CharDecision;
+
+                if (canUseApi) {
+                    const rawMessages = await DB.getRecentMessagesByCharId(charId, 20);
+                    const chatHistory = formatRecentChatForSim(
+                        rawMessages as any, char.name, userProfile.name || '你', 20
+                    );
+                    const systemPrompt = buildCharTurnSystemPrompt(char, userProfile, chatHistory, s, s.actionLog);
+                    const raw = await callCharAI(
+                        { baseUrl: apiConfig.baseUrl, apiKey: apiConfig.apiKey, model: apiConfig.model },
+                        systemPrompt
+                    );
+
+                    rawJson = extractJson(raw);
+                    if (Array.isArray(rawJson)) rawJson = rawJson[0];
+                    decision = normalizeCharDecision(rawJson);
+
+                    // 调试日志：查看每回合LLM的原始输出和解析结果
+                    console.group(`[LifeSim] ${char.name} 的回合 (Turn ${s.turnNumber})`);
+                    console.log('LLM原始输出:', raw);
+                    console.log('extractJson结果:', rawJson);
+                    console.log('normalize后决策:', JSON.stringify(decision, null, 2));
+                    if (!rawJson) console.warn('JSON解析失败！LLM输出无法解析为JSON');
+                    if (decision.action.type === 'DO_NOTHING' && rawJson?.type && rawJson.type !== 'DO_NOTHING')
+                        console.warn('action type被fallback为DO_NOTHING，原始type:', rawJson.type);
+                    console.groupEnd();
+                } else {
+                    decision = {
+                        action: { type: 'DO_NOTHING' },
+                        narrative: {
+                            innerThought: `${char.name}决定先嗑着瓜子围观一轮，看看局面会不会自己炸开。`,
+                            dialogue: '',
+                            commentOnWorld: '没接上外部AI的时候，这座城也会自己慢慢酝酿戏剧。',
+                            emotionalTone: 'amused',
+                        },
+                        reactionToUser: '你先继续折腾，我在旁边看戏。',
+                    };
+                }
+                const actionResult = executeCharDecision(s, decision, char);
+                s = actionResult.newState;
+
+                const action: SimAction = {
+                    id: genId(), turnNumber: s.turnNumber,
+                    actor: char.name, actorAvatar: char.avatar, actorId: char.id,
+                    type: decision.action.type as SimActionType,
+                    description: buildCharActionDescription(char.name, decision),
+                    immediateResult: actionResult.immediateResult,
+                    narrative: decision.narrative || undefined,
+                    reasoning: decision.narrative?.innerThought || undefined,
+                    reactionToUser: decision.reactionToUser || undefined,
+                    storyKind: 'character_drama',
+                    timestamp: Date.now(),
+                };
+                s.actionLog = [...s.actionLog, action];
+                replayActions.push(action);
+
+                // 结算 pending effects
+                const settled = settlePendingEffects(s);
+                s = settled.newState;
+                for (const ev of settled.events) {
+                    const sysAction: SimAction = {
+                        id: genId(), turnNumber: s.turnNumber,
+                        actor: '系统', actorAvatar: '', actorId: 'system',
+                        type: 'TRIGGER_EVENT', description: ev, immediateResult: ev, storyKind: 'system', timestamp: Date.now(),
+                    };
+                    s.actionLog = [...s.actionLog, sysAction];
+                    replayActions.push(sysAction);
+                }
+
+                s = advanceTurn(s);
+                const { over, reason } = checkGameOver(s);
+                if (over) { s.gameOver = true; s.gameOverReason = reason; break; }
+
+            } catch (e: any) {
+                console.error(`[LifeSim] ${char.name} 回合异常:`, e?.message || e);
+                const fallbackAction: SimAction = {
+                    id: genId(), turnNumber: s.turnNumber,
+                    actor: char.name, actorAvatar: char.avatar, actorId: char.id,
+                    type: 'DO_NOTHING',
+                    description: `${char.name}（因为某些原因）什么都没做，静静地看着局面发展。`,
+                    immediateResult: '……', storyKind: 'character_drama', timestamp: Date.now(),
+                };
+                s.actionLog = [...s.actionLog, fallbackAction];
+                replayActions.push(fallbackAction);
+                s = advanceTurn(s);
+            }
+        }
+
+        s.charQueue = []; s.isProcessingCharTurn = false; s.currentActorId = 'user';
+        s.replayPending = replayActions;
+        await saveState(s);
+        setProcessingMsg('');
+        if (replayActions.length > 0) { setShowReplay(true); setReplayIndex(0); }
+        if (s.gameOver) setShowGameOver(true);
+    }, [apiConfig, userProfile, characters, saveState]);
 
     // ── 用户行动：搅局 ──────────────────────────────────────────
 
@@ -244,10 +547,11 @@ const LifeSimApp: React.FC = () => {
             await saveState(s); setShowGameOver(true); setActionPanel('none'); return;
         }
 
-        await saveState(s);
-        setActionPanel('none');
-        await endTurn();
-    }, [gameState, userProfile, saveState, endTurn]);
+        const turnResult = await finalizeTurn(s);
+        if (turnResult.shouldRunCharTurns) {
+            await runCharTurns(turnResult.state, turnResult.replayActions);
+        }
+    }, [gameState, userProfile, finalizeTurn, runCharTurns]);
 
     // ── 用户行动：加人 ──────────────────────────────────────────
 
@@ -270,15 +574,17 @@ const LifeSimApp: React.FC = () => {
         };
         let s = { ...result.newState, actionLog: [...result.newState.actionLog, simAction] };
 
-        await saveState(s);
-        setActionPanel('none');
-        await endTurn();
-    }, [gameState, userProfile, saveState, endTurn]);
+        const turnResult = await finalizeTurn(s);
+        if (turnResult.shouldRunCharTurns) {
+            await runCharTurns(turnResult.state, turnResult.replayActions);
+        }
+    }, [gameState, userProfile, finalizeTurn, runCharTurns]);
 
-    // ── 看戏（跳过用户行动） ──────────────────────────────────
+    // ── 看戏（随机旁观角色戏 / 主线戏） ────────────────────────
 
     const handleWatch = useCallback(async () => {
         if (!gameState) return;
+
         const userActor = userProfile?.name || '你';
         const actionDesc = buildUserActionDescription('DO_NOTHING', userActor, {});
         const simAction: SimAction = {
@@ -287,105 +593,49 @@ const LifeSimApp: React.FC = () => {
             actorId: 'user', type: 'DO_NOTHING',
             description: actionDesc, immediateResult: '你选择了吃瓜围观……', timestamp: Date.now(),
         };
-        const s = { ...gameState, actionLog: [...gameState.actionLog, simAction] };
-        await saveState(s);
-        await endTurn();
-    }, [gameState, userProfile, saveState, endTurn]);
+        const watchedState = { ...gameState, actionLog: [...gameState.actionLog, simAction] };
 
-    // ── CHAR回合引擎 ──────────────────────────────────────────
-
-    const runCharTurns = useCallback(async (initialState: LifeSimState) => {
-        if (!apiConfig || !userProfile) return;
-        let s = deepClone(initialState);
-        const replayActions: SimAction[] = [];
-
-        for (const charId of s.charQueue) {
-            const char = characters.find(c => c.id === charId);
-            if (!char) continue;
-            s.isProcessingCharTurn = true; s.currentActorId = charId;
-            setProcessingMsg(`${char.name} 正在思考……`);
-            await saveState(s);
-
-            try {
-                const rawMessages = await DB.getRecentMessagesByCharId(charId, 20);
-                const chatHistory = formatRecentChatForSim(
-                    rawMessages as any, char.name, userProfile.name || '你', 20
-                );
-                const systemPrompt = buildCharTurnSystemPrompt(char, userProfile, chatHistory, s, s.actionLog);
-                const raw = await callCharAI(
-                    { baseUrl: apiConfig.baseUrl, apiKey: apiConfig.apiKey, model: apiConfig.model },
-                    systemPrompt
-                );
-
-                let rawJson = extractJson(raw);
-                if (Array.isArray(rawJson)) rawJson = rawJson[0];
-                const decision = normalizeCharDecision(rawJson);
-
-                // 调试日志：查看每回合LLM的原始输出和解析结果
-                console.group(`[LifeSim] ${char.name} 的回合 (Turn ${s.turnNumber})`);
-                console.log('LLM原始输出:', raw);
-                console.log('extractJson结果:', rawJson);
-                console.log('normalize后决策:', JSON.stringify(decision, null, 2));
-                if (!rawJson) console.warn('JSON解析失败！LLM输出无法解析为JSON');
-                if (decision.action.type === 'DO_NOTHING' && rawJson?.type && rawJson.type !== 'DO_NOTHING')
-                    console.warn('action type被fallback为DO_NOTHING，原始type:', rawJson.type);
-                console.groupEnd();
-                const actionResult = executeCharDecision(s, decision, char);
-                s = actionResult.newState;
-
-                const action: SimAction = {
-                    id: genId(), turnNumber: s.turnNumber,
-                    actor: char.name, actorAvatar: char.avatar, actorId: char.id,
-                    type: decision.action.type as SimActionType,
-                    description: buildCharActionDescription(char.name, decision),
-                    immediateResult: actionResult.immediateResult,
-                    narrative: decision.narrative || undefined,
-                    reasoning: decision.narrative?.innerThought || undefined,
-                    reactionToUser: decision.reactionToUser || undefined,
-                    timestamp: Date.now(),
-                };
-                s.actionLog = [...s.actionLog, action];
-                replayActions.push(action);
-
-                // 结算 pending effects
-                const settled = settlePendingEffects(s);
-                s = settled.newState;
-                for (const ev of settled.events) {
-                    const sysAction: SimAction = {
-                        id: genId(), turnNumber: s.turnNumber,
-                        actor: '系统', actorAvatar: '', actorId: 'system',
-                        type: 'TRIGGER_EVENT', description: ev, immediateResult: ev, timestamp: Date.now(),
-                    };
-                    s.actionLog = [...s.actionLog, sysAction];
-                    replayActions.push(sysAction);
-                }
-
-                s = advanceTurn(s);
-                const { over, reason } = checkGameOver(s);
-                if (over) { s.gameOver = true; s.gameOverReason = reason; break; }
-
-            } catch (e: any) {
-                console.error(`[LifeSim] ${char.name} 回合异常:`, e?.message || e);
-                const fallbackAction: SimAction = {
-                    id: genId(), turnNumber: s.turnNumber,
-                    actor: char.name, actorAvatar: char.avatar, actorId: char.id,
-                    type: 'DO_NOTHING',
-                    description: `${char.name}（因为某些原因）什么都没做，静静地看着局面发展。`,
-                    immediateResult: '……', timestamp: Date.now(),
-                };
-                s.actionLog = [...s.actionLog, fallbackAction];
-                replayActions.push(fallbackAction);
-                s = advanceTurn(s);
+        if (Math.random() < MAIN_PLOT_WATCH_CHANCE) {
+            const mainPlotResult = await buildMainPlotAction(watchedState);
+            if (!mainPlotResult) {
+                await saveState(watchedState);
+                return;
             }
+
+            let mainPlotState = mainPlotResult.newState;
+            const immediateOutcome = checkGameOver(mainPlotState);
+            if (immediateOutcome.over) {
+                mainPlotState = {
+                    ...mainPlotState,
+                    gameOver: true,
+                    gameOverReason: immediateOutcome.reason,
+                    replayPending: [mainPlotResult.mainPlotAction],
+                };
+                await saveState(mainPlotState);
+                setActionPanel('none');
+                setShowReplay(true);
+                setReplayIndex(0);
+                setShowGameOver(true);
+                return;
+            }
+
+            const turnResult = await finalizeTurn(mainPlotState, {
+                replaySeed: [mainPlotResult.mainPlotAction],
+                skipCharTurns: true,
+                captureNonCharReplay: true,
+            });
+
+            if (turnResult.shouldRunCharTurns) {
+                await runCharTurns(turnResult.state, turnResult.replayActions);
+            }
+            return;
         }
 
-        s.charQueue = []; s.isProcessingCharTurn = false; s.currentActorId = 'user';
-        s.replayPending = replayActions;
-        await saveState(s);
-        setProcessingMsg('');
-        if (replayActions.length > 0) { setShowReplay(true); setReplayIndex(0); }
-        if (s.gameOver) setShowGameOver(true);
-    }, [apiConfig, userProfile, characters, saveState]);
+        const turnResult = await finalizeTurn(watchedState);
+        if (turnResult.shouldRunCharTurns) {
+            await runCharTurns(turnResult.state, turnResult.replayActions);
+        }
+    }, [gameState, userProfile, buildMainPlotAction, finalizeTurn, runCharTurns, saveState]);
 
     // ── CHAR决策执行 ──────────────────────────────────────────
 
@@ -420,15 +670,118 @@ const LifeSimApp: React.FC = () => {
         }
     }
 
-    // ── 重置 ──────────────────────────────────────────────────
+    // ── 设置 / 编辑 / 结算重置 ────────────────────────────────
 
-    const resetGame = useCallback(async () => {
+    const handleToggleParticipantChar = useCallback(async (charId: string) => {
+        if (!gameState) return;
+        const currentIds = resolveParticipantCharIds(gameState);
+        const nextIds = currentIds.includes(charId)
+            ? currentIds.filter(id => id !== charId)
+            : [...currentIds, charId];
+        await saveState({ ...gameState, participantCharIds: nextIds });
+    }, [gameState, resolveParticipantCharIds, saveState]);
+
+    const handleSelectAllParticipantChars = useCallback(async () => {
+        if (!gameState) return;
+        const nextIds = characters.filter(char => !!char.id).map(char => char.id);
+        await saveState({ ...gameState, participantCharIds: nextIds });
+    }, [characters, gameState, saveState]);
+
+    const handleClearParticipantChars = useCallback(async () => {
+        if (!gameState) return;
+        await saveState({ ...gameState, participantCharIds: [] });
+    }, [gameState, saveState]);
+
+    const handleSaveNpcEdits = useCallback(async (updates: Partial<SimNPC>) => {
+        if (!gameState || !editingNpc) return;
+        const nextState: LifeSimState = {
+            ...gameState,
+            npcs: gameState.npcs.map(npc => (
+                npc.id === editingNpc.id
+                    ? { ...npc, ...updates, personality: updates.personality || npc.personality }
+                    : npc
+            )),
+        };
+        await saveState(nextState);
+        setEditingNpc(null);
+    }, [editingNpc, gameState, saveState]);
+
+    const resetGame = useCallback(async (options?: { preserveParticipantCharIds?: string[] }) => {
         const newState = createNewLifeSimState();
         newState.lastActiveTimestamp = Date.now();
-        setShowGameOver(false); setShowReplay(false);
-        setActionPanel('none'); setFestivalAnnounce('');
+        if (options?.preserveParticipantCharIds) {
+            newState.participantCharIds = [...options.preserveParticipantCharIds];
+        }
+        setShowGameOver(false);
+        setShowReplay(false);
+        setActionPanel('none');
+        setFestivalAnnounce('');
+        setShowResetDialog(false);
+        setShowSettings(false);
+        setEditingNpc(null);
         await saveState(newState);
     }, [saveState]);
+
+    const handleArchiveAndReset = useCallback(async () => {
+        if (!gameState) return;
+
+        const participantIds = resolveParticipantCharIds(gameState);
+        const participantChars = getParticipatingCharacters(gameState);
+        const participantNames = participantChars.map(char => char.name);
+        const fallbackSummary = buildFallbackLifeSimSessionSummary(userProfile?.name || '用户', participantNames, gameState.actionLog).slice(0, 300);
+        const mainPlots = gameState.actionLog.filter(action => action.storyKind === 'main_plot');
+
+        setIsResetting(true);
+        setProcessingMsg('正在生成城市小结...');
+
+        try {
+            let summary = fallbackSummary;
+            const canUseApi = !!(userProfile && apiConfig?.baseUrl && apiConfig?.apiKey && apiConfig?.model);
+
+            if (canUseApi && userProfile) {
+                const raw = await callCharAI(
+                    { baseUrl: apiConfig.baseUrl, apiKey: apiConfig.apiKey, model: apiConfig.model },
+                    buildLifeSimSessionSummaryPrompt(userProfile, participantNames, gameState.actionLog)
+                );
+                let rawJson = extractJson(raw);
+                if (Array.isArray(rawJson)) rawJson = rawJson[0];
+                const aiSummary = String(rawJson?.summary || rawJson?.content || rawJson?.text || '').replace(/\s+/g, ' ').trim();
+                if (aiSummary) summary = aiSummary.slice(0, 300);
+            }
+
+            for (const char of participantChars) {
+                const cardData = createLifeSimResetCardData({
+                    summary,
+                    headline: mainPlots[0]?.headline || mainPlots[mainPlots.length - 1]?.headline,
+                    userName: userProfile?.name || '用户',
+                    participantNames,
+                    charName: char.name,
+                    charAvatar: char.avatar,
+                    mainPlotCount: mainPlots.length,
+                    turnCount: gameState.turnNumber,
+                });
+
+                await DB.saveMessage({
+                    charId: char.id,
+                    role: 'system',
+                    type: 'score_card',
+                    content: JSON.stringify(cardData),
+                    metadata: { scoreCard: cardData, source: 'lifesim-reset' },
+                });
+            }
+
+            await resetGame({ preserveParticipantCharIds: participantIds });
+        } finally {
+            setIsResetting(false);
+            setProcessingMsg('');
+        }
+    }, [apiConfig, gameState, getParticipatingCharacters, resetGame, resolveParticipantCharIds, userProfile]);
+
+    const handleDirectReset = useCallback(async () => {
+        if (!gameState) return;
+        const participantIds = resolveParticipantCharIds(gameState);
+        await resetGame({ preserveParticipantCharIds: participantIds });
+    }, [gameState, resetGame, resolveParticipantCharIds]);
 
     const nextReplay = () => {
         if (!gameState) return;
@@ -467,6 +820,9 @@ const LifeSimApp: React.FC = () => {
     const ti = TIME_INFO[gameState.timeOfDay ?? 'morning'];
     const wi = WEATHER_INFO[gameState.weather ?? 'sunny'];
     const todayFestival = getTodayFestival(gameState);
+    const participantChars = getParticipatingCharacters(gameState);
+    const activeThinkingChar = participantChars.find(char => char.id === gameState.currentActorId) || null;
+    const isMainPlotThinking = !!processingMsg && !gameState.isProcessingCharTurn;
 
     // Retro OS palette based on season
     const seasonPalette: Record<string, { bg: string; accent: string; titlebar: string; windowBg: string }> = {
@@ -601,7 +957,32 @@ const LifeSimApp: React.FC = () => {
                             R{gameState.turnNumber} D{gameState.day ?? 1}
                         </span>
                         <button
-                            onClick={() => { if (window.confirm('确定要重置城市吗？')) resetGame(); }}
+                            onClick={() => setShowSettings(true)}
+                            className="flex items-center justify-center relative"
+                            style={{
+                                width: 44, height: 44, borderRadius: 7,
+                                background: 'rgba(255,255,255,0.2)',
+                                border: '1px solid rgba(255,255,255,0.3)',
+                                fontSize: 12, color: 'white',
+                                touchAction: 'manipulation',
+                                WebkitTapHighlightColor: 'transparent',
+                            }}>
+                            <Gear size={16} weight="bold" />
+                            <span style={{
+                                position: 'absolute',
+                                right: 3,
+                                bottom: 3,
+                                fontSize: 8,
+                                fontWeight: 700,
+                                background: 'rgba(0,0,0,0.28)',
+                                borderRadius: 999,
+                                padding: '0 4px',
+                            }}>
+                                {participantChars.length}
+                            </span>
+                        </button>
+                        <button
+                            onClick={() => setShowResetDialog(true)}
                             className="flex items-center justify-center"
                             style={{
                                 width: 44, height: 44, borderRadius: 7,
@@ -671,6 +1052,83 @@ const LifeSimApp: React.FC = () => {
                 </div>
             )}
 
+            {(participantChars.length > 0 || isMainPlotThinking) && (
+                <div className="mx-2 mt-1 px-2 py-1.5 retro-inset" style={{ borderRadius: 4 }}>
+                    <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+                        {isMainPlotThinking && (
+                            <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 6,
+                                padding: '4px 8px',
+                                borderRadius: 999,
+                                border: '1px solid rgba(184,108,61,0.35)',
+                                background: 'rgba(184,108,61,0.12)',
+                                color: '#9b6238',
+                                fontSize: 10,
+                                fontWeight: 700,
+                                flexShrink: 0,
+                            }}>
+                                <span style={{ fontSize: 14 }}>🎬</span>
+                                <span>主线编剧室</span>
+                            </div>
+                        )}
+
+                        {participantChars.map(char => {
+                            const isActive = gameState.isProcessingCharTurn && gameState.currentActorId === char.id;
+                            return (
+                                <div
+                                    key={char.id}
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 6,
+                                        padding: '4px 8px',
+                                        borderRadius: 999,
+                                        border: isActive ? '1px solid rgba(139,107,184,0.5)' : '1px solid rgba(0,0,0,0.08)',
+                                        background: isActive ? 'rgba(139,107,184,0.14)' : 'rgba(255,255,255,0.55)',
+                                        color: isActive ? '#7b61aa' : '#777',
+                                        fontSize: 10,
+                                        fontWeight: isActive ? 700 : 600,
+                                        boxShadow: isActive ? '0 0 0 1px rgba(139,107,184,0.15) inset' : 'none',
+                                        flexShrink: 0,
+                                        transition: 'all 0.18s ease',
+                                    }}>
+                                    <img
+                                        src={char.avatar}
+                                        alt={char.name}
+                                        style={{
+                                            width: 20,
+                                            height: 20,
+                                            borderRadius: 999,
+                                            objectFit: 'cover',
+                                            boxShadow: isActive ? '0 0 0 2px rgba(139,107,184,0.22)' : 'none',
+                                        }}
+                                    />
+                                    <span>{char.name}</span>
+                                    {isActive && (
+                                        <span style={{
+                                            width: 6,
+                                            height: 6,
+                                            borderRadius: '50%',
+                                            background: '#8b6bb8',
+                                            boxShadow: '0 0 10px rgba(139,107,184,0.45)',
+                                        }} />
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                    {(activeThinkingChar || isMainPlotThinking) && (
+                        <div style={{ marginTop: 5, fontSize: 9, color: '#8b8099', fontWeight: 700 }}>
+                            {isMainPlotThinking
+                                ? processingMsg
+                                : `${activeThinkingChar?.name || '角色'} 正在思考，API 已开始调用`}
+                        </div>
+                    )}
+                </div>
+            )}
+
             {/* ── Content window with tabs ── */}
             <div className="flex-1 flex flex-col mx-2 mt-1.5 mb-1 retro-window overflow-hidden" style={{ minHeight: 0 }}>
                 {/* Retro tab bar as titlebar */}
@@ -697,7 +1155,7 @@ const LifeSimApp: React.FC = () => {
                     <div className="flex-1" />
                 </div>
                 <div className="flex-1 overflow-y-auto" style={{ background: pal.windowBg }}>
-                    {activeTab === 'npcs' && <NPCGrid gameState={gameState} />}
+                    {activeTab === 'npcs' && <NPCGrid gameState={gameState} onLongPressNpc={setEditingNpc} />}
                     {activeTab === 'drama' && <DramaFeed gameState={gameState} />}
                     {activeTab === 'relations' && <RelationsTab gameState={gameState} />}
                 </div>
@@ -733,6 +1191,36 @@ const LifeSimApp: React.FC = () => {
                     onStir={handleStir}
                     onAdd={handleAddNpc}
                     onClose={() => setActionPanel('none')}
+                />
+            )}
+
+            {showSettings && (
+                <LifeSimSettingsPanel
+                    characters={characters}
+                    selectedCharIds={resolveParticipantCharIds(gameState)}
+                    onToggleChar={handleToggleParticipantChar}
+                    onSelectAll={handleSelectAllParticipantChars}
+                    onSelectNone={handleClearParticipantChars}
+                    onClose={() => setShowSettings(false)}
+                />
+            )}
+
+            {editingNpc && (
+                <NPCEditorPanel
+                    npc={editingNpc}
+                    onSave={handleSaveNpcEdits}
+                    onClose={() => setEditingNpc(null)}
+                />
+            )}
+
+            {showResetDialog && (
+                <ResetCityDialog
+                    participantCount={participantChars.length}
+                    mainPlotCount={gameState.actionLog.filter(action => action.storyKind === 'main_plot').length}
+                    processing={isResetting}
+                    onCancel={() => setShowResetDialog(false)}
+                    onArchiveAndReset={handleArchiveAndReset}
+                    onDirectReset={handleDirectReset}
                 />
             )}
 

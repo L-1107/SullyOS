@@ -1202,6 +1202,29 @@ export interface CharNarrative {
     emotionalTone: 'vengeful' | 'romantic' | 'scheming' | 'chaotic' | 'peaceful' | 'amused' | 'anxious';
 }
 
+export type SimStoryKind = 'main_plot' | 'character_drama' | 'ambient' | 'system';
+export type SimStoryAttachmentKind = 'image' | 'item' | 'fanfic' | 'evidence';
+export type SimStoryAttachmentRarity = 'common' | 'rare' | 'epic';
+
+export interface SimStoryAttachmentDraft {
+    kind: SimStoryAttachmentKind;
+    title: string;
+    summary: string;
+    detail?: string;
+    visualPrompt?: string;
+    rarity?: SimStoryAttachmentRarity;
+}
+
+export interface SimStoryAttachment {
+    id: string;
+    kind: SimStoryAttachmentKind;
+    title: string;
+    summary: string;
+    detail?: string;
+    imageUrl?: string;
+    rarity?: SimStoryAttachmentRarity;
+}
+
 export interface SimAction {
     id: string;
     turnNumber: number;
@@ -1215,6 +1238,11 @@ export interface SimAction {
     reactionToUser?: string;  // 角色对玩家操作的评价
     narrative?: CharNarrative; // 角色叙事层（LLM回合使用）
     chainFromId?: string;     // 由哪个事件链引发
+    chainFromId?: string;
+    storyKind?: SimStoryKind;
+    headline?: string;
+    involvedNpcIds?: string[];
+    attachments?: SimStoryAttachment[];
     timestamp: number;
 }
 
@@ -1319,6 +1347,7 @@ export interface LifeSimState {
     chaosLevel: number;      // 0-100，乱度指数
     charQueue: string[];     // 待执行的CHAR id队列（用户结束后填入）
     replayPending: SimAction[]; // 用户回来后待回放的行动
+    participantCharIds?: string[]; // 允许参与本局LifeSim的外部角色
     isProcessingCharTurn: boolean;
     gameOver: boolean;
     gameOverReason?: string;

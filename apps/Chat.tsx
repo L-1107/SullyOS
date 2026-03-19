@@ -4,6 +4,7 @@ import { DB } from '../utils/db';
 import { Message, MessageType, MemoryFragment, Emoji, EmojiCategory } from '../types';
 import { processImage } from '../utils/file';
 import { safeResponseJson } from '../utils/safeApi';
+import { formatLifeSimResetCardForContext } from '../utils/lifeSimChatCard';
 import { XhsMcpClient, extractNotesFromMcpData, normalizeNote } from '../utils/xhsMcpClient';
 import MessageItem from '../components/chat/MessageItem';
 import { PRESET_THEMES, DEFAULT_ARCHIVE_PROMPTS } from '../components/chat/ChatConstants';
@@ -764,7 +765,9 @@ const Chat: React.FC = () => {
                     else if ((m.type as string) === 'score_card') {
                         try {
                             const card = m.metadata?.scoreCard || JSON.parse(m.content);
-                            if (card?.type === 'guidebook_card') {
+                            if (card?.type === 'lifesim_reset_card') {
+                                content = formatLifeSimResetCardForContext(card, char.name);
+                            } else if (card?.type === 'guidebook_card') {
                                 const diff = (card.finalAffinity ?? 0) - (card.initialAffinity ?? 0);
                                 content = `[攻略本游戏结算] ${char.name}和${userProfile.name}玩了一局"攻略本"恋爱小游戏（${card.rounds || '?'}回合）。结局：「${card.title || '???'}」 好感度变化：${card.initialAffinity} → ${card.finalAffinity}（${diff >= 0 ? '+' : ''}${diff}） ${char.name}的评语：${card.charVerdict || '无'} ${char.name}对${userProfile.name}的新发现：${card.charNewInsight || '无'}`;
                             } else if (card?.type === 'whiteday_card') {

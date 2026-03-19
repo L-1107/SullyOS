@@ -4,7 +4,7 @@
  * 角色们和用户一起玩模拟人生游戏，作为"玩家"操控游戏里的NPC小人
  */
 
-import { LifeSimState, SimFamily, SimNPC, SimAction, CharacterProfile, UserProfile, SimSeason, CharNarrative } from '../types';
+import { LifeSimState, SimFamily, SimNPC, SimAction, CharacterProfile, UserProfile, SimSeason, CharNarrative, SimEventType, SimStoryAttachmentDraft } from '../types';
 import { ContextBuilder } from './context';
 import {
     getFamilyMembers, getIndependentNPCs, getMoodLabel, getFamilyAtmosphere,
@@ -240,6 +240,258 @@ export function normalizeCharDecision(raw: any): CharDecision {
         reactionToUser: raw.reactionToUser || raw.reaction || undefined,
         immediateResultHint: raw.immediateResultHint || raw.result || undefined,
     };
+}
+
+export interface WorldDramaDecision {
+    headline: string;
+    eventType: SimEventType;
+    involvedNpcIds: string[];
+    eventDescription: string;
+    immediateResult: string;
+    narrative: CharNarrative;
+    attachments: SimStoryAttachmentDraft[];
+}
+
+const WORLD_EVENT_TYPES: SimEventType[] = ['fight', 'party', 'gossip', 'romance', 'rivalry', 'alliance'];
+const WORLD_TONES: CharNarrative['emotionalTone'][] = ['vengeful', 'romantic', 'scheming', 'chaotic', 'peaceful', 'amused', 'anxious'];
+
+function pickRandom<T>(items: T[]): T {
+    return items[Math.floor(Math.random() * items.length)];
+}
+
+function fallbackToneForEvent(eventType: SimEventType): CharNarrative['emotionalTone'] {
+    switch (eventType) {
+        case 'fight': return 'chaotic';
+        case 'gossip': return 'scheming';
+        case 'romance': return 'romantic';
+        case 'rivalry': return 'anxious';
+        case 'alliance': return 'amused';
+        default: return 'peaceful';
+    }
+}
+
+function buildFallbackAttachments(
+    headline: string,
+    eventType: SimEventType,
+    involvedNpcs: SimNPC[]
+): SimStoryAttachmentDraft[] {
+    const npcNames = involvedNpcs.map(npc => npc.name);
+    const pair = npcNames.slice(0, 2).join(' / ') || '匿名住户';
+    const attachmentPool: SimStoryAttachmentDraft[] = [
+        {
+            kind: 'image',
+            title: `${headline} 现场图`,
+            summary: `一张带着都市霓虹感的现场截图，主角是 ${pair}。`,
+            visualPrompt: `${headline}，都市公寓，像素风，霓虹灯，${pair}，dramatic`,
+            rarity: 'rare',
+        },
+        {
+            kind: 'evidence',
+            title: '匿名聊天记录',
+            summary: `围观群众把这件事总结成了一份聊天截图，所有人都在偷偷站队。`,
+            detail: `【群聊节选】\n- “这事绝对不简单。”\n- “${pair} 这次是真的闹大了。”\n- “我先截图，等会儿肯定还有后续。”`,
+            rarity: 'common',
+        },
+        {
+            kind: 'item',
+            title: '剧情掉落物',
+            summary: eventType === 'romance'
+                ? '一只被遗落在电梯口的小礼盒，里面还有没送出去的心意。'
+                : eventType === 'fight'
+                ? '冲突现场留下的关键道具，像是能继续引爆后续剧情的火种。'
+                : '一件和这场风波有关的私人物件，被围观者偷偷保存了下来。',
+            detail: eventType === 'romance'
+                ? '礼盒里有一张手写卡片，只写了两个字：“今晚”。'
+                : eventType === 'fight'
+                ? '道具边角有明显磨损，看起来它刚刚见证过一场情绪失控的正面交锋。'
+                : '这件东西本身没多值钱，但放在此刻，简直像剧情自带的伏笔。',
+            rarity: 'rare',
+        },
+    ];
+
+    const fanficAuthor = involvedNpcs.find(npc => npc.profession === 'fanfic_writer');
+    if (fanficAuthor) {
+        attachmentPool.push({
+            kind: 'fanfic',
+            title: `${fanficAuthor.name} 的同人文片段`,
+            summary: `${fanficAuthor.name} 已经把这场事故写成了半篇文，标题党味道很重。`,
+            detail: `《${headline}》\n\n${pair} 都知道那扇门一旦关上，今晚就不会再只是一个普通夜晚。\n走廊的灯把影子拉得很长，像所有没说出口的话都提前站好了位置。\n有人故作冷静，有人假装只是路过，可真正滚烫的东西早就在空气里炸开。\n等到消息传进群里时，整栋楼都明白，这件事已经不可能轻轻放下。`,
+            rarity: 'epic',
+        });
+    } else {
+        attachmentPool.push({
+            kind: 'fanfic',
+            title: '匿名论坛热帖',
+            summary: '围观群众已经把这件事二创成了小短文，传播速度比真相还快。',
+            detail: `《${headline} 二创版》\n\n楼道尽头的风声很轻，却没能把那句失控的话带走。\n有人在退后，有人在靠近，而最危险的东西从来不是争执本身，而是彼此都还没打算停下。\n当第一张截图流出去时，这段关系就已经不再只属于当事人。`,
+            rarity: 'rare',
+        });
+    }
+
+    return attachmentPool.slice(0, 3);
+}
+
+export function buildFallbackWorldDramaDecision(state: LifeSimState): WorldDramaDecision {
+    const npcs = [...state.npcs];
+    const shuffled = npcs.sort(() => Math.random() - 0.5);
+    const involved = shuffled.slice(0, Math.min(3, Math.max(2, shuffled.length)));
+    const involvedIds = involved.map(npc => npc.id);
+
+    const hasCrush = involved.some(npc => (npc.crushes?.length ?? 0) > 0);
+    const hasGrudge = involved.some(npc => (npc.grudges?.length ?? 0) > 0);
+
+    let eventType: SimEventType;
+    if (state.chaosLevel > 65 && hasGrudge) eventType = pickRandom(['fight', 'rivalry']);
+    else if (hasCrush && Math.random() < 0.5) eventType = 'romance';
+    else if (state.chaosLevel > 45) eventType = pickRandom(['gossip', 'alliance', 'rivalry']);
+    else eventType = pickRandom(WORLD_EVENT_TYPES);
+
+    const names = involved.map(npc => npc.name);
+    const headlineByType: Record<SimEventType, string[]> = {
+        fight: ['天台录音门', '走廊对峙夜', '深夜互撕现场'],
+        party: ['临时派对事故', '屋顶聚会失控', '今晚不准散场'],
+        gossip: ['匿名爆料贴', '群聊截图流出', '八卦在凌晨失火'],
+        romance: ['借火误会', '深夜礼物事件', '电梯里的暧昧证词'],
+        rivalry: ['双王不共楼', '互相内涵的一周', '谁才是公寓中心'],
+        alliance: ['秘密站队协议', '地下同盟成立', '交换情报的人'],
+    };
+    const headline = `${pickRandom(headlineByType[eventType])} · ${names[0] || '住户'}`;
+
+    const eventDescriptionByType: Record<SimEventType, string> = {
+        fight: `${names[0] || '某人'}和${names[1] || '某人'}在公共区域情绪失控，冲突被更多住户撞见了。`,
+        party: `${names[0] || '某人'}临时攒局，把几位住户都卷进了一个看似轻松却暗流涌动的夜晚。`,
+        gossip: `一份关于${names[0] || '某人'}的匿名爆料突然在楼里扩散，越传越像真的。`,
+        romance: `${names[0] || '某人'}和${names[1] || '某人'}之间出现了不再能装作没看见的暧昧信号。`,
+        rivalry: `${names[0] || '某人'}和${names[1] || '某人'}开始了表面客气、实则针锋相对的长期较劲。`,
+        alliance: `${names[0] || '某人'}和${names[1] || '某人'}私下交换了立场，准备一起改写楼里的局势。`,
+    };
+
+    const narrative: CharNarrative = {
+        innerThought: '这一轮不该只是围观，应该顺手把整条世界线点燃。',
+        dialogue: `${headline} 正式开场，${names.join('、')}都已经站到了舞台中央。`,
+        commentOnWorld: '主线已经起势，接下来每个人都会被迫表态。',
+        emotionalTone: fallbackToneForEvent(eventType),
+    };
+
+    return {
+        headline,
+        eventType,
+        involvedNpcIds: involvedIds,
+        eventDescription: eventDescriptionByType[eventType],
+        immediateResult: `${headline} 把整栋楼的注意力都拽了过去，新的站队和误会正在生成。`,
+        narrative,
+        attachments: buildFallbackAttachments(headline, eventType, involved),
+    };
+}
+
+export function normalizeWorldDramaDecision(raw: any): WorldDramaDecision {
+    const fallbackNarrative: CharNarrative = {
+        innerThought: '',
+        dialogue: '',
+        commentOnWorld: '',
+        emotionalTone: 'scheming',
+    };
+
+    if (!raw || typeof raw !== 'object') {
+        return {
+            headline: '主线剧情',
+            eventType: 'gossip',
+            involvedNpcIds: [],
+            eventDescription: '一段新的都市主线突然开始了。',
+            immediateResult: '围观情绪迅速升温。',
+            narrative: fallbackNarrative,
+            attachments: [],
+        };
+    }
+
+    const validKinds = new Set(['image', 'item', 'fanfic', 'evidence']);
+    const validRarity = new Set(['common', 'rare', 'epic']);
+    const rawEventType = typeof raw.eventType === 'string' ? raw.eventType.toLowerCase() : '';
+    const eventType = (WORLD_EVENT_TYPES.includes(rawEventType as SimEventType) ? rawEventType : 'gossip') as SimEventType;
+    const rawNarrative = raw.narrative && typeof raw.narrative === 'object' ? raw.narrative : raw;
+    const rawTone = typeof rawNarrative.emotionalTone === 'string' ? rawNarrative.emotionalTone.toLowerCase() : 'scheming';
+
+    const attachments = Array.isArray(raw.attachments)
+        ? raw.attachments
+            .filter((item: any) => item && typeof item === 'object')
+            .map((item: any): SimStoryAttachmentDraft => ({
+                kind: validKinds.has(item.kind) ? item.kind : 'evidence',
+                title: String(item.title || '未命名附件').slice(0, 40),
+                summary: String(item.summary || item.caption || '没有留下太多说明。').slice(0, 120),
+                detail: typeof item.detail === 'string' ? item.detail : undefined,
+                visualPrompt: typeof item.visualPrompt === 'string' ? item.visualPrompt : undefined,
+                rarity: validRarity.has(item.rarity) ? item.rarity : 'common',
+            }))
+        : [];
+
+    return {
+        headline: String(raw.headline || raw.title || '主线剧情').slice(0, 40),
+        eventType,
+        involvedNpcIds: Array.isArray(raw.involvedNpcIds) ? raw.involvedNpcIds.map(String) : [],
+        eventDescription: String(raw.eventDescription || raw.description || '一段新的都市主线突然开始了。').slice(0, 120),
+        immediateResult: String(raw.immediateResult || raw.result || '围观情绪迅速升温。').slice(0, 160),
+        narrative: {
+            innerThought: String(rawNarrative.innerThought || rawNarrative.thought || '').slice(0, 120),
+            dialogue: String(rawNarrative.dialogue || rawNarrative.scene || '').slice(0, 180),
+            commentOnWorld: String(rawNarrative.commentOnWorld || rawNarrative.comment || '').slice(0, 120),
+            emotionalTone: (WORLD_TONES.includes(rawTone as CharNarrative['emotionalTone']) ? rawTone : 'scheming') as CharNarrative['emotionalTone'],
+        },
+        attachments,
+    };
+}
+
+export function buildWorldDramaPlannerPrompt(
+    user: UserProfile,
+    state: LifeSimState,
+    actionLog: SimAction[]
+): string {
+    return `
+你不是某个角色，也不是玩家。你是这座都市人生小世界的“主线编剧室”。
+
+任务：现在进入非常 drama 的规划环节，请围绕 NPC 直接启动一段新的主线剧情。
+规则：
+- 这次是“主线剧情”，不是普通旁支，不需要 CHAR 参与。
+- 只能使用当前世界里的 NPC，当事人建议 2-4 个。
+- 主线要像连续剧开篇，要有钩子、误会、站队欲，能自然引出后续。
+- 不能只写“发生了什么”，必须额外掉落 2-3 个附件。
+- 附件可从 image / item / fanfic / evidence 里选择。
+- 如果是 fanfic，detail 里直接给出正文片段。
+- 如果是 image，给 visualPrompt，我会把它做成剧情插图卡。
+
+${serializeWorldContext(state)}
+
+${serializeGameState(state)}
+
+=== 最近剧情 ===
+${serializeActionLog(actionLog, 12)}
+
+${buildAvailableResources(state)}
+
+请只返回 JSON：
+{
+  "headline": "主线标题，像连续剧小标题",
+  "eventType": "fight|party|gossip|romance|rivalry|alliance",
+  "involvedNpcIds": ["npc id"],
+  "eventDescription": "一句话描述这次主线导火索",
+  "immediateResult": "这段主线刚开启就带来的即时后果",
+  "narrative": {
+    "innerThought": "编剧式旁白/幕后判断",
+    "dialogue": "更有画面的场景描写",
+    "commentOnWorld": "对当前世界线的吐槽或判断",
+    "emotionalTone": "vengeful|romantic|scheming|chaotic|peaceful|amused|anxious"
+  },
+  "attachments": [
+    {
+      "kind": "image|item|fanfic|evidence",
+      "title": "附件标题",
+      "summary": "短说明",
+      "detail": "展开内容，可选；fanfic 建议给正文",
+      "visualPrompt": "如果 kind=image 才填",
+      "rarity": "common|rare|epic"
+    }
+  ]
+}
+`.trim();
 }
 
 export function buildCharTurnSystemPrompt(

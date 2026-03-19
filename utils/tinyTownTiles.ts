@@ -7,11 +7,6 @@
  */
 
 import { SimSeason } from '../types';
-import houseRedPng from '../pics/house_red.png';
-import houseBluePng from '../pics/house_blue.png';
-import houseLargePng from '../pics/house_large.png';
-import castlePng from '../pics/house_office.png';
-import mineEntrancePng from '../pics/house_club.png';
 
 const TILE_SIZE = 32;
 
@@ -541,14 +536,6 @@ export interface TileSet {
 
 const _cache: Record<string, TileSet> = {};
 
-const STATIC_BUILDING_TILES: Partial<Pick<TileSet, 'houseRed' | 'houseBlue' | 'houseLarge' | 'castle' | 'mineEntrance'>> = {
-    houseRed: houseRedPng,
-    houseBlue: houseBluePng,
-    houseLarge: houseLargePng,
-    castle: castlePng,
-    mineEntrance: mineEntrancePng,
-};
-
 export function getTileSet(season: SimSeason = 'spring'): TileSet {
     if (_cache[season]) return _cache[season];
 
@@ -584,10 +571,7 @@ export function getTileSet(season: SimSeason = 'spring'): TileSet {
         mapBackground: drawTilemap(20, 19, season),
     };
 
-    _cache[season] = {
-        ...generated,
-        ...STATIC_BUILDING_TILES,
-    };
+    _cache[season] = generated;
 
     return _cache[season];
 }
