@@ -398,6 +398,7 @@ export function migrateLifeSimState(state: LifeSimState): LifeSimState {
     if (!s.timeOfDay) s.timeOfDay = 'morning';
     if (!s.weather) s.weather = generateWeather(s.season);
     if (s.lastActiveTimestamp === undefined) s.lastActiveTimestamp = Date.now();
+    if (s.useIndependentApiConfig === undefined) s.useIndependentApiConfig = false;
 
     // 清除已移除的旧字段
     delete (s as any).buildings;
@@ -505,6 +506,7 @@ export function createNewLifeSimState(): LifeSimState {
         chaosLevel: 0,
         charQueue: [],
         replayPending: [],
+        useIndependentApiConfig: false,
         isProcessingCharTurn: false,
         gameOver: false,
         season: 'spring',

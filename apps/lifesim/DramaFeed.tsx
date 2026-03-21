@@ -5,7 +5,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { LifeSimState, SimAction } from '../../types';
 import {
-    Alien, ChatCircleDots, BookOpen, Globe, Lightning, Sparkle,
+    Alien, BookOpen, ChatCircleDots, Globe, Lightning, Sparkle,
 } from '@phosphor-icons/react';
 import StoryAttachments from './StoryAttachments';
 
@@ -86,10 +86,11 @@ const DramaEntry: React.FC<{ action: SimAction }> = ({ action }) => {
                 borderRadius: 4,
                 padding: '5px 8px',
                 cursor: hasDetails ? 'pointer' : 'default',
+                minWidth: 0,
             }}
             onClick={() => hasDetails && setExpanded(!expanded)}
         >
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5" style={{ minWidth: 0 }}>
                 <div
                     className="flex-shrink-0"
                     style={{
@@ -121,6 +122,7 @@ const DramaEntry: React.FC<{ action: SimAction }> = ({ action }) => {
                             borderRadius: 999,
                             padding: '1px 5px',
                             letterSpacing: '0.04em',
+                            flexShrink: 0,
                         }}
                     >
                         {storyBadge}
@@ -129,22 +131,22 @@ const DramaEntry: React.FC<{ action: SimAction }> = ({ action }) => {
                 {toneColor && (
                     <span style={{ width: 5, height: 5, borderRadius: '50%', background: toneColor, flexShrink: 0 }} />
                 )}
-                <span style={{ fontSize: 8, color: '#bbb', marginLeft: 'auto', fontFamily: 'monospace' }}>R{action.turnNumber}</span>
+                <span style={{ fontSize: 8, color: '#bbb', marginLeft: 'auto', fontFamily: 'monospace', flexShrink: 0 }}>R{action.turnNumber}</span>
                 {hasDetails && (
-                    <span style={{ fontSize: 8, color: '#ccc' }}>{expanded ? '▲' : '▼'}</span>
+                    <span style={{ fontSize: 8, color: '#ccc', flexShrink: 0 }}>{expanded ? '▲' : '▼'}</span>
                 )}
             </div>
 
             {action.headline && (
-                <p style={{ fontSize: 11, fontWeight: 700, color: '#3f3846', lineHeight: 1.35, marginTop: 4 }}>
+                <p style={{ fontSize: 11, fontWeight: 700, color: '#3f3846', lineHeight: 1.35, marginTop: 4, overflowWrap: 'anywhere' }}>
                     {action.headline}
                 </p>
             )}
 
-            <p style={{ fontSize: 10, color: '#555', lineHeight: 1.4, marginTop: 3 }}>{action.description}</p>
+            <p style={{ fontSize: 10, color: '#555', lineHeight: 1.4, marginTop: 3, overflowWrap: 'anywhere' }}>{action.description}</p>
 
             {action.immediateResult && action.immediateResult !== action.description && (
-                <p style={{ fontSize: 9, color: '#888', marginTop: 2 }}>→ {action.immediateResult}</p>
+                <p style={{ fontSize: 9, color: '#888', marginTop: 2, overflowWrap: 'anywhere' }}>→ {action.immediateResult}</p>
             )}
 
             <StoryAttachments attachments={action.attachments} compact />
@@ -153,23 +155,23 @@ const DramaEntry: React.FC<{ action: SimAction }> = ({ action }) => {
                 <div style={{ marginTop: 5, paddingTop: 5, borderTop: '1px dashed rgba(0,0,0,0.08)' }}>
                     {(narrative?.innerThought || action.reasoning) && (
                         <div className="retro-inset" style={{ padding: '3px 6px', marginBottom: 4 }}>
-                            <p style={{ fontSize: 9, color: '#998', fontStyle: 'italic', display: 'flex', alignItems: 'center', gap: 3 }}>
+                            <p style={{ fontSize: 9, color: '#998', fontStyle: 'italic', display: 'flex', alignItems: 'center', gap: 3, overflowWrap: 'anywhere' }}>
                                 <ChatCircleDots size={9} weight="bold" /> {narrative?.innerThought || action.reasoning}
                             </p>
                         </div>
                     )}
                     {narrative?.dialogue && (
-                        <p style={{ fontSize: 9, color: '#666', display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
+                        <p style={{ fontSize: 9, color: '#666', display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3, overflowWrap: 'anywhere' }}>
                             <BookOpen size={9} weight="bold" style={{ flexShrink: 0 }} /> {narrative.dialogue}
                         </p>
                     )}
                     {narrative?.commentOnWorld && (
-                        <p style={{ fontSize: 8, color: '#aaa', fontStyle: 'italic', display: 'flex', alignItems: 'center', gap: 3 }}>
+                        <p style={{ fontSize: 8, color: '#aaa', fontStyle: 'italic', display: 'flex', alignItems: 'center', gap: 3, overflowWrap: 'anywhere' }}>
                             <Globe size={8} weight="bold" style={{ flexShrink: 0 }} /> {narrative.commentOnWorld}
                         </p>
                     )}
                     {action.reactionToUser && (
-                        <p style={{ fontSize: 9, color: '#9080a0', fontStyle: 'italic', marginTop: 3, display: 'flex', alignItems: 'center', gap: 3 }}>
+                        <p style={{ fontSize: 9, color: '#9080a0', fontStyle: 'italic', marginTop: 3, display: 'flex', alignItems: 'center', gap: 3, overflowWrap: 'anywhere' }}>
                             <ChatCircleDots size={9} weight="bold" style={{ flexShrink: 0 }} /> "{action.reactionToUser}"
                         </p>
                     )}
@@ -207,7 +209,7 @@ const MainPlotArchive: React.FC<{ gameState: LifeSimState }> = ({ gameState }) =
     const involvedNames = selectedPlot?.involvedNpcIds?.map(id => npcNameMap.get(id)).filter(Boolean) || [];
 
     return (
-        <div className="retro-window" style={{ minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+        <div className="retro-window" style={{ minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
             <div className="retro-titlebar">
                 <span>mainplot.arc</span>
                 <span className="flex items-center gap-1">
@@ -219,7 +221,7 @@ const MainPlotArchive: React.FC<{ gameState: LifeSimState }> = ({ gameState }) =
             {!selectedPlot ? (
                 <div className="flex-1 flex items-center justify-center text-center" style={{ padding: 14 }}>
                     <div>
-                        <p style={{ fontSize: 11, fontWeight: 700, color: '#7f6c5d' }}>主线档案室还空着</p>
+                        <p style={{ fontSize: 11, fontWeight: 700, color: '#7f6c5d' }}>主线档案室还是空的</p>
                         <p style={{ fontSize: 10, color: '#9a8f84', marginTop: 6, lineHeight: 1.5 }}>
                             多点几次“吃瓜”，世界线就会在这里留下记录。
                         </p>
@@ -227,6 +229,43 @@ const MainPlotArchive: React.FC<{ gameState: LifeSimState }> = ({ gameState }) =
                 </div>
             ) : (
                 <>
+                    <div style={{ padding: 8, borderBottom: '1px solid rgba(0,0,0,0.08)' }}>
+                        <div style={{ fontSize: 9, fontWeight: 700, color: '#8b7b72', marginBottom: 6 }}>主线历史</div>
+                        <div className="space-y-1.5 no-scrollbar" style={{ maxHeight: 168, overflowY: 'auto', overflowX: 'hidden', paddingRight: 2 }}>
+                            {mainPlots.map(action => {
+                                const active = action.id === selectedPlot.id;
+                                return (
+                                    <button
+                                        key={action.id}
+                                        onClick={() => setSelectedId(action.id)}
+                                        style={{
+                                            width: '100%',
+                                            textAlign: 'left',
+                                            border: active ? `1px solid ${EVENT_ACCENTS.mainPlot}55` : '1px solid rgba(0,0,0,0.08)',
+                                            borderLeft: `3px solid ${active ? EVENT_ACCENTS.mainPlot : '#d0c1b7'}`,
+                                            borderRadius: 4,
+                                            padding: '6px 7px',
+                                            background: active ? 'rgba(255,247,234,0.8)' : 'rgba(255,255,255,0.55)',
+                                            minWidth: 0,
+                                        }}
+                                    >
+                                        <div className="flex items-center gap-2" style={{ minWidth: 0 }}>
+                                            <span style={{ fontSize: 9, fontWeight: 700, color: active ? EVENT_ACCENTS.mainPlot : '#7f756e', flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>
+                                                {action.headline || action.description}
+                                            </span>
+                                            <span style={{ fontSize: 8, color: '#aaa', fontFamily: 'monospace', flexShrink: 0 }}>R{action.turnNumber}</span>
+                                        </div>
+                                        {action.attachments && action.attachments.length > 0 && (
+                                            <div style={{ fontSize: 8, color: '#9f8b7d', marginTop: 3 }}>
+                                                附件 {action.attachments.length}
+                                            </div>
+                                        )}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
+
                     <div style={{ padding: 8, borderBottom: '1px solid rgba(0,0,0,0.08)', background: 'rgba(184,108,61,0.05)' }}>
                         <div className="flex items-center gap-1.5 flex-wrap">
                             <span
@@ -241,20 +280,20 @@ const MainPlotArchive: React.FC<{ gameState: LifeSimState }> = ({ gameState }) =
                                     letterSpacing: '0.04em',
                                 }}
                             >
-                                主线进行中
+                                当前主线
                             </span>
                             <span style={{ fontSize: 8, color: '#a1968c', fontFamily: 'monospace' }}>R{selectedPlot.turnNumber}</span>
                         </div>
-                        <p style={{ fontSize: 12, fontWeight: 700, color: '#4b3c31', marginTop: 5, lineHeight: 1.45 }}>
+                        <p style={{ fontSize: 12, fontWeight: 700, color: '#4b3c31', marginTop: 5, lineHeight: 1.45, overflowWrap: 'anywhere' }}>
                             {selectedPlot.headline || selectedPlot.description}
                         </p>
-                        <p style={{ fontSize: 10, color: '#6a615a', lineHeight: 1.55, marginTop: 5 }}>
+                        <p style={{ fontSize: 10, color: '#6a615a', lineHeight: 1.55, marginTop: 5, overflowWrap: 'anywhere' }}>
                             {selectedPlot.description}
                         </p>
                         {selectedPlot.immediateResult && (
                             <div className="retro-inset" style={{ padding: '6px 8px', marginTop: 7 }}>
                                 <div style={{ fontSize: 8, fontWeight: 700, color: '#9b765e', marginBottom: 3 }}>阶段结果</div>
-                                <div style={{ fontSize: 10, color: '#59504a', lineHeight: 1.5 }}>{selectedPlot.immediateResult}</div>
+                                <div style={{ fontSize: 10, color: '#59504a', lineHeight: 1.5, overflowWrap: 'anywhere' }}>{selectedPlot.immediateResult}</div>
                             </div>
                         )}
                         {involvedNames.length > 0 && (
@@ -280,54 +319,18 @@ const MainPlotArchive: React.FC<{ gameState: LifeSimState }> = ({ gameState }) =
                         <StoryAttachments attachments={selectedPlot.attachments} />
                     </div>
 
-                    <div style={{ padding: 8, borderBottom: '1px solid rgba(0,0,0,0.08)' }}>
-                        <div style={{ fontSize: 9, fontWeight: 700, color: '#8b7b72', marginBottom: 6 }}>主线历史</div>
-                        <div className="space-y-1.5" style={{ maxHeight: 168, overflowY: 'auto', paddingRight: 2 }}>
-                            {mainPlots.map(action => {
-                                const active = action.id === selectedPlot.id;
-                                return (
-                                    <button
-                                        key={action.id}
-                                        onClick={() => setSelectedId(action.id)}
-                                        style={{
-                                            width: '100%',
-                                            textAlign: 'left',
-                                            border: active ? `1px solid ${EVENT_ACCENTS.mainPlot}55` : '1px solid rgba(0,0,0,0.08)',
-                                            borderLeft: `3px solid ${active ? EVENT_ACCENTS.mainPlot : '#d0c1b7'}`,
-                                            borderRadius: 4,
-                                            padding: '6px 7px',
-                                            background: active ? 'rgba(255,247,234,0.8)' : 'rgba(255,255,255,0.55)',
-                                        }}
-                                    >
-                                        <div className="flex items-center gap-2">
-                                            <span style={{ fontSize: 9, fontWeight: 700, color: active ? EVENT_ACCENTS.mainPlot : '#7f756e', flex: 1 }}>
-                                                {action.headline || action.description}
-                                            </span>
-                                            <span style={{ fontSize: 8, color: '#aaa', fontFamily: 'monospace' }}>R{action.turnNumber}</span>
-                                        </div>
-                                        {action.attachments && action.attachments.length > 0 && (
-                                            <div style={{ fontSize: 8, color: '#9f8b7d', marginTop: 3 }}>
-                                                附件 {action.attachments.length}
-                                            </div>
-                                        )}
-                                    </button>
-                                );
-                            })}
-                        </div>
-                    </div>
-
                     {(selectedPlot.narrative?.innerThought || selectedPlot.narrative?.commentOnWorld) && (
                         <div style={{ padding: 8 }}>
                             <div style={{ fontSize: 9, fontWeight: 700, color: '#8b7b72', marginBottom: 6 }}>编剧室批注</div>
                             {selectedPlot.narrative?.innerThought && (
                                 <div className="retro-inset" style={{ padding: '6px 8px', marginBottom: selectedPlot.narrative?.commentOnWorld ? 6 : 0 }}>
-                                    <p style={{ fontSize: 9, color: '#7d705e', lineHeight: 1.55, fontStyle: 'italic' }}>
+                                    <p style={{ fontSize: 9, color: '#7d705e', lineHeight: 1.55, fontStyle: 'italic', overflowWrap: 'anywhere' }}>
                                         {selectedPlot.narrative.innerThought}
                                     </p>
                                 </div>
                             )}
                             {selectedPlot.narrative?.commentOnWorld && (
-                                <p style={{ fontSize: 9, color: '#8e847d', lineHeight: 1.55 }}>
+                                <p style={{ fontSize: 9, color: '#8e847d', lineHeight: 1.55, overflowWrap: 'anywhere' }}>
                                     {selectedPlot.narrative.commentOnWorld}
                                 </p>
                             )}
@@ -346,7 +349,7 @@ const DramaFeed: React.FC<{ gameState: LifeSimState }> = ({ gameState }) => {
         .reverse();
 
     return (
-        <div style={{ padding: 6, minHeight: '100%' }}>
+        <div style={{ padding: 6, minHeight: '100%', minWidth: 0, overflowX: 'hidden' }}>
             <div className="retro-window" style={{ padding: 6, marginBottom: 8 }}>
                 <div className="flex items-center gap-1.5 flex-wrap">
                     {FILTERS.map(item => {
@@ -373,24 +376,24 @@ const DramaFeed: React.FC<{ gameState: LifeSimState }> = ({ gameState }) => {
                 </div>
             </div>
 
-            <div className="grid gap-2 lg:grid-cols-2" style={{ minHeight: 'calc(100% - 48px)' }}>
-            <div className="retro-window order-2 lg:order-1" style={{ minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-                <div className="retro-titlebar">
-                    <span>drama.log</span>
-                    <span>{logs.length}</span>
+            <div className="grid gap-2 lg:grid-cols-2" style={{ minHeight: 'calc(100% - 48px)', minWidth: 0 }}>
+                <div className="retro-window order-2 lg:order-1" style={{ minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+                    <div className="retro-titlebar">
+                        <span>drama.log</span>
+                        <span>{logs.length}</span>
+                    </div>
+                    <div style={{ padding: 6, minWidth: 0 }} className="space-y-1 flex-1 overflow-y-auto overflow-x-hidden no-scrollbar">
+                        {logs.length === 0 ? (
+                            <div className="text-center py-8" style={{ color: '#999', fontSize: 11 }}>还没有新的动态记录…</div>
+                        ) : logs.map(action => (
+                            <DramaEntry key={action.id} action={action} />
+                        ))}
+                    </div>
                 </div>
-                <div style={{ padding: 6 }} className="space-y-1 flex-1 overflow-y-auto">
-                    {logs.length === 0 ? (
-                        <div className="text-center py-8" style={{ color: '#999', fontSize: 11 }}>还没有新的动态记录…</div>
-                    ) : logs.map(action => (
-                        <DramaEntry key={action.id} action={action} />
-                    ))}
-                </div>
-            </div>
 
-            <div className="order-1 lg:order-2">
-                <MainPlotArchive gameState={gameState} />
-            </div>
+                <div className="order-1 lg:order-2" style={{ minWidth: 0 }}>
+                    <MainPlotArchive gameState={gameState} />
+                </div>
             </div>
         </div>
     );

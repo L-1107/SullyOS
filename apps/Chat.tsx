@@ -8,7 +8,7 @@ import { formatLifeSimResetCardForContext } from '../utils/lifeSimChatCard';
 import { XhsMcpClient, extractNotesFromMcpData, normalizeNote } from '../utils/xhsMcpClient';
 import MessageItem from '../components/chat/MessageItem';
 import { PRESET_THEMES, DEFAULT_ARCHIVE_PROMPTS } from '../components/chat/ChatConstants';
-import ChatHeader from '../components/chat/ChatHeader';
+import ChatHeader from '../components/chat/ChatHeaderShell';
 import ChatInputArea from '../components/chat/ChatInputArea';
 import ChatModals from '../components/chat/ChatModals';
 import Modal from '../components/os/Modal';
@@ -1006,15 +1006,49 @@ const Chat: React.FC = () => {
     // Memoize ChatInputArea callbacks
     const handleSendCallback = useCallback(() => handleSendText(), [char, input, replyTarget]);
     const handleCharSelectCallback = useCallback((id: string) => { setActiveCharacterId(id); setShowPanel('none'); }, []);
+    const chatChromeStyle = osTheme.chatChromeStyle || 'soft';
+    const chatBackgroundStyle = osTheme.chatBackgroundStyle || 'plain';
+    const chatRootClass =
+        chatChromeStyle === 'pixel'
+            ? 'flex flex-col h-full bg-[#efe1cf] overflow-hidden relative font-sans transition-[background-image,background-color] duration-500'
+            : chatChromeStyle === 'flat'
+              ? 'flex flex-col h-full bg-white overflow-hidden relative font-sans transition-[background-image,background-color] duration-500'
+              : chatChromeStyle === 'floating'
+                ? 'flex flex-col h-full bg-[#eef2ff] overflow-hidden relative font-sans transition-[background-image,background-color] duration-500'
+                : 'flex flex-col h-full bg-[#f1f5f9] overflow-hidden relative font-sans transition-[background-image,background-color] duration-500';
+    const chatRootStyle: React.CSSProperties = char.chatBackground
+        ? {
+            backgroundImage: `url(${char.chatBackground})`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+        }
+        : chatBackgroundStyle === 'grid'
+          ? {
+              backgroundColor: chatChromeStyle === 'pixel' ? '#efe1cf' : '#f8fafc',
+              backgroundImage:
+                  'linear-gradient(rgba(148,163,184,0.14) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,0.14) 1px, transparent 1px)',
+              backgroundSize: '20px 20px',
+            }
+          : chatBackgroundStyle === 'paper'
+            ? {
+                backgroundColor: chatChromeStyle === 'pixel' ? '#f4e8d9' : '#f9f7f2',
+                backgroundImage: 'radial-gradient(circle at 1px 1px, rgba(148,163,184,0.12) 1px, transparent 0)',
+                backgroundSize: '16px 16px',
+              }
+            : chatBackgroundStyle === 'mesh'
+              ? {
+                  backgroundColor: '#f8fafc',
+                  backgroundImage:
+                      'radial-gradient(circle at 15% 20%, rgba(59,130,246,0.18), transparent 28%), radial-gradient(circle at 85% 15%, rgba(244,114,182,0.18), transparent 24%), radial-gradient(circle at 60% 75%, rgba(45,212,191,0.18), transparent 26%)',
+                }
+              : {
+                  backgroundImage: 'none',
+                };
 
     return (
         <div 
-            className="flex flex-col h-full bg-[#f1f5f9] overflow-hidden relative font-sans transition-[background-image] duration-500"
-            style={{ 
-                backgroundImage: char.chatBackground ? `url(${char.chatBackground})` : 'none',
-                backgroundSize: 'cover',
-                backgroundPosition: 'center',
-            }}
+            className={chatRootClass}
+            style={chatRootStyle}
         >
              {activeTheme.customCss && <style>{activeTheme.customCss}</style>}
 
@@ -1081,9 +1115,13 @@ const Chat: React.FC = () => {
                 }}
                 headerStyle={osTheme.chatHeaderStyle}
                 avatarShape={osTheme.chatAvatarShape}
+                headerAlign={osTheme.chatHeaderAlign}
+                headerDensity={osTheme.chatHeaderDensity}
+                statusStyle={osTheme.chatStatusStyle}
+                chromeStyle={osTheme.chatChromeStyle}
              />
 
-            <div ref={scrollRef} className="flex-1 overflow-y-auto pt-6 pb-6 no-scrollbar" style={{ backgroundImage: activeTheme.type === 'custom' && activeTheme.user.backgroundImage ? 'none' : undefined }}>
+            <div ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-hidden pt-6 pb-6 no-scrollbar" style={{ backgroundImage: activeTheme.type === 'custom' && activeTheme.user.backgroundImage ? 'none' : undefined }}>
                 {collapsedCount > 0 && (
                     <div className="flex justify-center mb-6">
                         <button onClick={async () => {
@@ -1186,6 +1224,8 @@ const Chat: React.FC = () => {
                     isProactiveActive={isProactiveActive}
                     isEmotionEnabled={!!char.emotionConfig?.enabled}
                     inputStyle={osTheme.chatInputStyle}
+                    sendButtonStyle={osTheme.chatSendButtonStyle}
+                    chromeStyle={osTheme.chatChromeStyle}
                 />
             </div>
 

@@ -19,7 +19,6 @@ import {
     buildCharTurnSystemPrompt, formatRecentChatForSim, buildUserActionDescription, CharDecision, normalizeCharDecision,
     buildWorldDramaPlannerPrompt, normalizeWorldDramaDecision, buildFallbackWorldDramaDecision,
 } from '../utils/lifeSimPrompts';
-import { runAutonomousTurn } from '../utils/lifeSimAutonomous';
 import { materializeStoryAttachments } from '../utils/lifeSimStoryAttachments';
 import { createLifeSimResetCardData } from '../utils/lifeSimChatCard';
 import { buildFallbackLifeSimSessionSummary, buildLifeSimSessionSummaryPrompt } from '../utils/lifeSimSessionSummary';
@@ -110,7 +109,7 @@ async function callCharAI(
 // ── 主组件 ──────────────────────────────────────────────────────
 
 const LifeSimApp: React.FC = () => {
-    const { apiConfig, characters, userProfile, closeApp } = useOS();
+    const { apiConfig, apiPresets, characters, userProfile, closeApp } = useOS();
 
     const [gameState, setGameState] = useState<LifeSimState | null>(null);
     const [isLoading, setIsLoading] = useState(true);
@@ -179,19 +178,31 @@ const LifeSimApp: React.FC = () => {
         return characters.filter(char => !!char.id && allowedIds.has(char.id));
     }, [characters, resolveParticipantCharIds]);
 
+    const resolveLifeSimApiConfig = useCallback((state: LifeSimState | null | undefined) => {
+        if (!state?.useIndependentApiConfig) return apiConfig;
+        const override = state.independentApiConfig || {};
+        return {
+            ...apiConfig,
+            baseUrl: override.baseUrl?.trim() || apiConfig.baseUrl,
+            apiKey: override.apiKey?.trim() || apiConfig.apiKey,
+            model: override.model?.trim() || apiConfig.model,
+        };
+    }, [apiConfig]);
+
     const buildMainPlotAction = useCallback(async (state: LifeSimState) => {
         if (!userProfile) return null;
 
         setProcessingMsg('主线编剧室正在加戏...');
         const fallback = buildFallbackWorldDramaDecision(state);
+        const resolvedApiConfig = resolveLifeSimApiConfig(state);
 
         try {
             let decision = fallback;
-            const canUseApi = !!(apiConfig?.baseUrl && apiConfig?.apiKey && apiConfig?.model);
+            const canUseApi = !!(resolvedApiConfig?.baseUrl && resolvedApiConfig?.apiKey && resolvedApiConfig?.model);
 
             if (canUseApi) {
                 const raw = await callCharAI(
-                    { baseUrl: apiConfig.baseUrl, apiKey: apiConfig.apiKey, model: apiConfig.model },
+                    { baseUrl: resolvedApiConfig.baseUrl, apiKey: resolvedApiConfig.apiKey, model: resolvedApiConfig.model },
                     buildWorldDramaPlannerPrompt(userProfile, state, state.actionLog)
                 );
                 let rawJson = extractJson(raw);
@@ -244,7 +255,7 @@ const LifeSimApp: React.FC = () => {
         } finally {
             setProcessingMsg('');
         }
-    }, [apiConfig, userProfile]);
+    }, [resolveLifeSimApiConfig, userProfile]);
 
     // ── 结束回合 ────────────────────────────────────────────────
 
@@ -269,11 +280,6 @@ const LifeSimApp: React.FC = () => {
         }
 
         // 2. NPC自主行为
-        const autoResult = runAutonomousTurn(s);
-        s = autoResult.newState;
-        for (const autoAction of autoResult.events) {
-            s.actionLog = [...s.actionLog, autoAction];
-        }
 
         // 3. 结算待处理效果
         const settled = settlePendingEffects(s);
@@ -344,12 +350,6 @@ const LifeSimApp: React.FC = () => {
             setTimeout(() => setFestivalAnnounce(''), 4000);
         }
 
-        const autoResult = runAutonomousTurn(s);
-        s = autoResult.newState;
-        for (const autoAction of autoResult.events) {
-            s.actionLog = [...s.actionLog, autoAction];
-            pushReplay(autoAction);
-        }
 
         const settled = settlePendingEffects(s);
         s = settled.newState;
@@ -416,7 +416,8 @@ const LifeSimApp: React.FC = () => {
         if (!userProfile) return;
         let s = deepClone(initialState);
         const replayActions: SimAction[] = [...seededReplayActions];
-        const canUseApi = !!(apiConfig?.baseUrl && apiConfig?.apiKey && apiConfig?.model);
+        const resolvedApiConfig = resolveLifeSimApiConfig(initialState);
+        const canUseApi = !!(resolvedApiConfig?.baseUrl && resolvedApiConfig?.apiKey && resolvedApiConfig?.model);
 
         for (const charId of s.charQueue) {
             const char = characters.find(c => c.id === charId);
@@ -436,7 +437,7 @@ const LifeSimApp: React.FC = () => {
                     );
                     const systemPrompt = buildCharTurnSystemPrompt(char, userProfile, chatHistory, s, s.actionLog);
                     const raw = await callCharAI(
-                        { baseUrl: apiConfig.baseUrl, apiKey: apiConfig.apiKey, model: apiConfig.model },
+                        { baseUrl: resolvedApiConfig.baseUrl, apiKey: resolvedApiConfig.apiKey, model: resolvedApiConfig.model },
                         systemPrompt
                     );
 
@@ -521,7 +522,7 @@ const LifeSimApp: React.FC = () => {
         setProcessingMsg('');
         if (replayActions.length > 0) { setShowReplay(true); setReplayIndex(0); }
         if (s.gameOver) setShowGameOver(true);
-    }, [apiConfig, userProfile, characters, saveState]);
+    }, [characters, resolveLifeSimApiConfig, saveState, userProfile]);
 
     // ── 用户行动：搅局 ──────────────────────────────────────────
 
@@ -692,6 +693,22 @@ const LifeSimApp: React.FC = () => {
         await saveState({ ...gameState, participantCharIds: [] });
     }, [gameState, saveState]);
 
+    const handleSaveLifeSimApiSettings = useCallback(async (payload: {
+        enabled: boolean;
+        config: { baseUrl: string; apiKey: string; model: string };
+    }) => {
+        if (!gameState) return;
+        await saveState({
+            ...gameState,
+            useIndependentApiConfig: payload.enabled,
+            independentApiConfig: {
+                baseUrl: payload.config.baseUrl,
+                apiKey: payload.config.apiKey,
+                model: payload.config.model,
+            },
+        });
+    }, [gameState, saveState]);
+
     const handleSaveNpcEdits = useCallback(async (updates: Partial<SimNPC>) => {
         if (!gameState || !editingNpc) return;
         const nextState: LifeSimState = {
@@ -706,11 +723,21 @@ const LifeSimApp: React.FC = () => {
         setEditingNpc(null);
     }, [editingNpc, gameState, saveState]);
 
-    const resetGame = useCallback(async (options?: { preserveParticipantCharIds?: string[] }) => {
+    const resetGame = useCallback(async (options?: {
+        preserveParticipantCharIds?: string[];
+        preserveUseIndependentApiConfig?: boolean;
+        preserveIndependentApiConfig?: LifeSimState['independentApiConfig'];
+    }) => {
         const newState = createNewLifeSimState();
         newState.lastActiveTimestamp = Date.now();
         if (options?.preserveParticipantCharIds) {
             newState.participantCharIds = [...options.preserveParticipantCharIds];
+        }
+        if (options?.preserveUseIndependentApiConfig !== undefined) {
+            newState.useIndependentApiConfig = options.preserveUseIndependentApiConfig;
+        }
+        if (options?.preserveIndependentApiConfig) {
+            newState.independentApiConfig = { ...options.preserveIndependentApiConfig };
         }
         setShowGameOver(false);
         setShowReplay(false);
@@ -730,17 +757,18 @@ const LifeSimApp: React.FC = () => {
         const participantNames = participantChars.map(char => char.name);
         const fallbackSummary = buildFallbackLifeSimSessionSummary(userProfile?.name || '用户', participantNames, gameState.actionLog).slice(0, 300);
         const mainPlots = gameState.actionLog.filter(action => action.storyKind === 'main_plot');
+        const resolvedApiConfig = resolveLifeSimApiConfig(gameState);
 
         setIsResetting(true);
         setProcessingMsg('正在生成城市小结...');
 
         try {
             let summary = fallbackSummary;
-            const canUseApi = !!(userProfile && apiConfig?.baseUrl && apiConfig?.apiKey && apiConfig?.model);
+            const canUseApi = !!(userProfile && resolvedApiConfig?.baseUrl && resolvedApiConfig?.apiKey && resolvedApiConfig?.model);
 
             if (canUseApi && userProfile) {
                 const raw = await callCharAI(
-                    { baseUrl: apiConfig.baseUrl, apiKey: apiConfig.apiKey, model: apiConfig.model },
+                    { baseUrl: resolvedApiConfig.baseUrl, apiKey: resolvedApiConfig.apiKey, model: resolvedApiConfig.model },
                     buildLifeSimSessionSummaryPrompt(userProfile, participantNames, gameState.actionLog)
                 );
                 let rawJson = extractJson(raw);
@@ -770,17 +798,25 @@ const LifeSimApp: React.FC = () => {
                 });
             }
 
-            await resetGame({ preserveParticipantCharIds: participantIds });
+            await resetGame({
+                preserveParticipantCharIds: participantIds,
+                preserveUseIndependentApiConfig: gameState.useIndependentApiConfig,
+                preserveIndependentApiConfig: gameState.independentApiConfig,
+            });
         } finally {
             setIsResetting(false);
             setProcessingMsg('');
         }
-    }, [apiConfig, gameState, getParticipatingCharacters, resetGame, resolveParticipantCharIds, userProfile]);
+    }, [gameState, getParticipatingCharacters, resetGame, resolveLifeSimApiConfig, resolveParticipantCharIds, userProfile]);
 
     const handleDirectReset = useCallback(async () => {
         if (!gameState) return;
         const participantIds = resolveParticipantCharIds(gameState);
-        await resetGame({ preserveParticipantCharIds: participantIds });
+        await resetGame({
+            preserveParticipantCharIds: participantIds,
+            preserveUseIndependentApiConfig: gameState.useIndependentApiConfig,
+            preserveIndependentApiConfig: gameState.independentApiConfig,
+        });
     }, [gameState, resetGame, resolveParticipantCharIds]);
 
     const nextReplay = () => {
@@ -837,7 +873,7 @@ const LifeSimApp: React.FC = () => {
     const TAB_LABELS: Record<string, string> = { npcs: '住户.exe', drama: '动态.log', relations: '关系.dat' };
 
     return (
-        <div className="h-full flex flex-col overflow-hidden select-none" style={{ background: pal.bg }}>
+        <div className="h-full w-full max-w-full flex flex-col overflow-hidden select-none" style={{ background: pal.bg, overflowX: 'hidden' }}>
 
             {/* ── Retro OS global styles ── */}
             <style>{`
@@ -910,6 +946,8 @@ const LifeSimApp: React.FC = () => {
                     font-weight: 600;
                     color: ${pal.accent};
                 }
+                .no-scrollbar::-webkit-scrollbar { display: none; }
+                .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
             `}</style>
 
             {/* ── 顶部状态栏 (retro taskbar) ── */}
@@ -1130,7 +1168,7 @@ const LifeSimApp: React.FC = () => {
             )}
 
             {/* ── Content window with tabs ── */}
-            <div className="flex-1 flex flex-col mx-2 mt-1.5 mb-1 retro-window overflow-hidden" style={{ minHeight: 0 }}>
+            <div className="flex-1 flex flex-col mx-2 mt-1.5 mb-1 retro-window overflow-hidden" style={{ minHeight: 0, minWidth: 0 }}>
                 {/* Retro tab bar as titlebar */}
                 <div className="retro-titlebar" style={{ padding: 0 }}>
                     {([
@@ -1154,7 +1192,7 @@ const LifeSimApp: React.FC = () => {
                     ))}
                     <div className="flex-1" />
                 </div>
-                <div className="flex-1 overflow-y-auto" style={{ background: pal.windowBg }}>
+                <div className="flex-1 overflow-y-auto overflow-x-hidden no-scrollbar" style={{ background: pal.windowBg, minWidth: 0 }}>
                     {activeTab === 'npcs' && <NPCGrid gameState={gameState} onLongPressNpc={setEditingNpc} />}
                     {activeTab === 'drama' && <DramaFeed gameState={gameState} />}
                     {activeTab === 'relations' && <RelationsTab gameState={gameState} />}
@@ -1198,9 +1236,13 @@ const LifeSimApp: React.FC = () => {
                 <LifeSimSettingsPanel
                     characters={characters}
                     selectedCharIds={resolveParticipantCharIds(gameState)}
+                    apiPresets={apiPresets}
+                    useIndependentApiConfig={!!gameState.useIndependentApiConfig}
+                    independentApiConfig={gameState.independentApiConfig}
                     onToggleChar={handleToggleParticipantChar}
                     onSelectAll={handleSelectAllParticipantChars}
                     onSelectNone={handleClearParticipantChars}
+                    onSaveApiSettings={handleSaveLifeSimApiSettings}
                     onClose={() => setShowSettings(false)}
                 />
             )}

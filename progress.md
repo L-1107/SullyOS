@@ -21,6 +21,12 @@ Original prompt: 先继续优化都市人生 simsapp：去掉 pics 里的丑像�
 - `npm run build` still passes after the latest DramaFeed + chat-card styling changes.
 - Automated browser validation is still blocked locally because `require('playwright')` fails with `MODULE_NOT_FOUND`.
 
+- Removed LifeSim's autonomous NPC interaction step from the main turn flow, so only user-triggered actions and char/main-plot API turns advance the story now.
+- Added LifeSim-specific independent API settings with global preset loading and a Gemini Flash recommendation, and persisted them on the LifeSim state so city resets do not wipe the app-specific config.
+- Reworked `apps/lifesim/DramaFeed.tsx` again so `主线历史` appears above the current main-plot detail view, while keeping the archive separate from the general drama stream.
+- Tightened LifeSim scroll behavior across the main panel, settings panel, action panel, and attachment viewer by hiding scrollbars and blocking horizontal overflow except for the attachment strip itself.
+- `npm run build` passes after the latest LifeSim logic + layout + settings changes.
+
 TODO
 - If local browser testing is possible, verify both `吃瓜 -> 角色剧情` and `吃瓜 -> 主线剧情` paths and inspect attachment modal behavior.
 - Install or provide `playwright` if automated screenshot-based UI validation is needed later.

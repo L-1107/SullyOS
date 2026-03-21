@@ -77,11 +77,17 @@ export interface OSTheme {
   // Chat UI customization (global)
   chatAvatarShape?: 'circle' | 'rounded' | 'square';
   chatAvatarSize?: 'small' | 'medium' | 'large';
-  chatBubbleStyle?: 'modern' | 'flat' | 'outline' | 'shadow';
+  chatBubbleStyle?: 'modern' | 'flat' | 'outline' | 'shadow' | 'wechat' | 'ios';
   chatMessageSpacing?: 'compact' | 'default' | 'spacious';
   chatShowTimestamp?: 'always' | 'hover' | 'never';
-  chatHeaderStyle?: 'default' | 'minimal' | 'gradient';
-  chatInputStyle?: 'default' | 'rounded' | 'flat';
+  chatHeaderStyle?: 'default' | 'minimal' | 'gradient' | 'wechat' | 'telegram' | 'discord' | 'pixel';
+  chatInputStyle?: 'default' | 'rounded' | 'flat' | 'wechat' | 'ios' | 'telegram' | 'discord' | 'pixel';
+  chatChromeStyle?: 'soft' | 'flat' | 'floating' | 'pixel';
+  chatBackgroundStyle?: 'plain' | 'grid' | 'paper' | 'mesh';
+  chatHeaderAlign?: 'left' | 'center';
+  chatHeaderDensity?: 'compact' | 'default' | 'airy';
+  chatStatusStyle?: 'subtle' | 'pill' | 'dot';
+  chatSendButtonStyle?: 'circle' | 'pill' | 'minimal';
 }
 
 export interface AppearancePreset {
@@ -1000,6 +1006,8 @@ export interface FullBackupData {
     availableModels?: string[];
     realtimeConfig?: RealtimeConfig;  // 实时感知配置（天气/新闻/Notion）
     customIcons?: Record<string, string>;
+    customIcons?: Record<string, string>;
+    appearancePresets?: AppearancePreset[];
     characters?: CharacterProfile[];
     groups?: GroupProfile[]; 
     messages?: Message[];
@@ -1056,6 +1064,18 @@ export interface FullBackupData {
 
     // Guidebook (攻略本)
     guidebookSessions?: GuidebookSession[];
+
+    // Chat delayed actions
+    scheduledMessages?: {
+        id: string;
+        charId: string;
+        content: string;
+        dueAt: number;
+        createdAt: number;
+    }[];
+
+    // LifeSim
+    lifeSimState?: LifeSimState | null;
 }
 
 // --- GUIDEBOOK (攻略本) APP TYPES ---
@@ -1348,6 +1368,8 @@ export interface LifeSimState {
     charQueue: string[];     // 待执行的CHAR id队列（用户结束后填入）
     replayPending: SimAction[]; // 用户回来后待回放的行动
     participantCharIds?: string[]; // 允许参与本局LifeSim的外部角色
+    useIndependentApiConfig?: boolean;
+    independentApiConfig?: Partial<APIConfig>;
     isProcessingCharTurn: boolean;
     gameOver: boolean;
     gameOverReason?: string;

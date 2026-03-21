@@ -25,7 +25,7 @@ const StoryAttachments: React.FC<{
 
     return (
         <>
-            <div style={{ marginTop: compact ? 5 : 8 }}>
+            <div style={{ marginTop: compact ? 5 : 8, minWidth: 0 }}>
                 <div className="flex items-center gap-1.5 mb-1.5">
                     <span style={{ fontSize: compact ? 8 : 9, fontWeight: 700, color: '#7a6f95', letterSpacing: '0.06em' }}>
                         ATTACHMENTS
@@ -54,7 +54,8 @@ const StoryAttachments: React.FC<{
                                     background: 'rgba(255,255,255,0.6)',
                                     padding: 6,
                                     boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.45)',
-                                }}>
+                                }}
+                            >
                                 {item.imageUrl && (
                                     <img
                                         src={item.imageUrl}
@@ -73,10 +74,10 @@ const StoryAttachments: React.FC<{
                                     <Icon size={11} weight="bold" style={{ color: accent, flexShrink: 0 }} />
                                     <span style={{ fontSize: 8, fontWeight: 700, color: accent }}>{meta.label}</span>
                                 </div>
-                                <div style={{ fontSize: compact ? 9 : 10, fontWeight: 700, color: '#4c4658', marginTop: 3, lineHeight: 1.3 }}>
+                                <div style={{ fontSize: compact ? 9 : 10, fontWeight: 700, color: '#4c4658', marginTop: 3, lineHeight: 1.3, overflowWrap: 'anywhere' }}>
                                     {item.title}
                                 </div>
-                                <div style={{ fontSize: 8, color: '#7d7887', marginTop: 3, lineHeight: 1.4 }}>
+                                <div style={{ fontSize: 8, color: '#7d7887', marginTop: 3, lineHeight: 1.4, overflowWrap: 'anywhere' }}>
                                     {item.summary}
                                 </div>
                             </button>
@@ -97,7 +98,8 @@ const StoryAttachments: React.FC<{
                         alignItems: 'center',
                         justifyContent: 'center',
                         padding: 16,
-                    }}>
+                    }}
+                >
                     <div
                         className="retro-window"
                         onClick={event => event.stopPropagation()}
@@ -108,9 +110,11 @@ const StoryAttachments: React.FC<{
                             overflow: 'hidden',
                             display: 'flex',
                             flexDirection: 'column',
-                        }}>
+                            minWidth: 0,
+                        }}
+                    >
                         <div className="retro-titlebar">
-                            <span>{active.title}</span>
+                            <span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{active.title}</span>
                             <button
                                 onClick={() => setActive(null)}
                                 style={{
@@ -123,12 +127,14 @@ const StoryAttachments: React.FC<{
                                     background: 'rgba(255,255,255,0.15)',
                                     border: '1px solid rgba(255,255,255,0.25)',
                                     color: 'white',
-                                }}>
+                                    flexShrink: 0,
+                                }}
+                            >
                                 <X size={10} weight="bold" />
                             </button>
                         </div>
 
-                        <div style={{ padding: 12, overflowY: 'auto' }}>
+                        <div className="no-scrollbar" style={{ padding: 12, overflowY: 'auto', overflowX: 'hidden' }}>
                             {active.imageUrl && (
                                 <img
                                     src={active.imageUrl}
@@ -145,23 +151,24 @@ const StoryAttachments: React.FC<{
                             <div style={{ fontSize: 10, color: '#6e6780', fontWeight: 700, marginBottom: 4 }}>
                                 {KIND_META[active.kind].label} · {(active.rarity || 'common').toUpperCase()}
                             </div>
+
                             {(active.kind === 'fanfic' || active.kind === 'evidence') && active.detail ? (
                                 <>
                                     <div className="retro-inset" style={{ padding: '8px 10px', marginTop: 2 }}>
                                         <div style={{ fontSize: 10, color: '#777', fontWeight: 700, marginBottom: 4 }}>
                                             原文
                                         </div>
-                                        <div style={{ fontSize: 11, color: '#4f4b58', lineHeight: 1.75, whiteSpace: 'pre-wrap' }}>
+                                        <div style={{ fontSize: 11, color: '#4f4b58', lineHeight: 1.75, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
                                             {active.detail}
                                         </div>
                                     </div>
-                                    <div style={{ fontSize: 10, color: '#7b7387', lineHeight: 1.6, marginTop: 9 }}>
+                                    <div style={{ fontSize: 10, color: '#7b7387', lineHeight: 1.6, marginTop: 9, overflowWrap: 'anywhere' }}>
                                         {active.summary}
                                     </div>
                                 </>
                             ) : (
                                 <>
-                                    <div style={{ fontSize: 12, color: '#444', lineHeight: 1.6 }}>
+                                    <div style={{ fontSize: 12, color: '#444', lineHeight: 1.6, overflowWrap: 'anywhere' }}>
                                         {active.summary}
                                     </div>
                                     {active.detail && (
@@ -169,7 +176,7 @@ const StoryAttachments: React.FC<{
                                             <div style={{ fontSize: 10, color: '#777', fontWeight: 700, marginBottom: 4 }}>
                                                 展开内容
                                             </div>
-                                            <div style={{ fontSize: 11, color: '#4f4b58', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
+                                            <div style={{ fontSize: 11, color: '#4f4b58', lineHeight: 1.7, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
                                                 {active.detail}
                                             </div>
                                         </div>

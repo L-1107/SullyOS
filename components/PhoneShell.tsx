@@ -275,10 +275,11 @@ const PhoneShell: React.FC = () => {
     const unreadCharId = Object.keys(unreadMessages)[0];
     const unreadChar = unreadCharId ? characters.find(c => c.id === unreadCharId) : null;
 
-    return (
+        return (
       <div 
         onClick={() => {
-            if ('Notification' in window && Notification.permission !== 'granted') {
+            // Only ask once when permission is still undecided; don't keep poking blocked/denied browsers.
+            if ('Notification' in window && Notification.permission === 'default') {
                 Notification.requestPermission();
             }
             unlock();

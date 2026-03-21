@@ -5,6 +5,8 @@ import { DB } from '../utils/db';
 import { ProactiveChat } from '../utils/proactiveChat';
 import { ChatPrompts } from '../utils/chatPrompts';
 import { safeFetchJson } from '../utils/safeApi';
+import { LocalNotifications } from '@capacitor/local-notifications';
+import { Capacitor } from '@capacitor/core';
 
 
 type JSZipLike = {
@@ -140,7 +142,7 @@ interface OSContextType {
   addCustomTheme: (theme: ChatTheme) => void;
   removeCustomTheme: (id: string) => void;
 
-  // Appearance Presets (independent from settings export/import)
+  // Appearance Presets
   appearancePresets: AppearancePreset[];
   saveAppearancePreset: (name: string) => void;
   applyAppearancePreset: (id: string) => void;
@@ -440,6 +442,26 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
 
   // Call Suspend
   const [suspendedCall, setSuspendedCall] = useState<{ charId: string; charName: string; charAvatar?: string; startedAt: number; bubbles?: any[]; sessionId?: string; elapsedSeconds?: number; voiceLang?: string } | null>(null);
+
+  const sendProactiveNativeNotification = useCallback(async (charId: string, charName: string, body: string) => {
+      if (!Capacitor.isNativePlatform()) return;
+      try {
+          const permStatus = await LocalNotifications.checkPermissions();
+          if (permStatus.display !== 'granted') return;
+          await LocalNotifications.schedule({
+              notifications: [{
+                  title: charName,
+                  body,
+                  id: Math.floor(Math.random() * 1000000),
+                  schedule: { at: new Date(Date.now() + 250) },
+                  smallIcon: 'ic_stat_icon_config_sample',
+                  extra: { charId, source: 'proactive-chat' }
+              }]
+          });
+      } catch {
+          console.log('[Proactive] Native notification skipped');
+      }
+  }, []);
 
   // --- Helper to inject custom font ---
   const applyCustomFont = (fontData: string | undefined) => {
@@ -830,7 +852,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                           unreadUpdates[char.id] = dueMessages.length;
 
                           // Web Notification
-                          if (window.Notification && Notification.permission === 'granted') {
+                          if (!Capacitor.isNativePlatform() && window.Notification && Notification.permission === 'granted') {
                               try {
                                   const notif = new Notification(char.name, {
                                       body: dueMessages[0].content,
@@ -879,7 +901,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       let awayProactiveCount = 0;
 
       const handler = (e: Event) => {
-          const { charId, charName } = (e as CustomEvent).detail;
+          const { charId, charName, body } = (e as CustomEvent).detail as { charId: string; charName: string; body?: string };
           // Only mark unread if user is NOT currently viewing this character's chat
           // Always bump timestamp so Chat reloads messages if currently open
           setLastMsgTimestamp(Date.now());
@@ -893,13 +915,15 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   awayProactiveCount += 1;
               }
               setUnreadMessages(prev => ({ ...prev, [charId]: (prev[charId] || 0) + 1 }));
+              const preview = (body || `${charName} sent a proactive message`).replace(/\s+/g, ' ').trim() || `${charName} sent a proactive message`;
+              void sendProactiveNativeNotification(charId, charName, preview);
 
               // Web Notification
-              if (window.Notification && Notification.permission === 'granted') {
+              if (!Capacitor.isNativePlatform() && window.Notification && Notification.permission === 'granted') {
                   const char = characters.find(c => c.id === charId);
                   try {
                       const notif = new Notification(charName, {
-                          body: `${charName} 主动找你聊天了`,
+                          body: preview,
                           icon: char?.avatar,
                           silent: false
                       });
@@ -923,7 +947,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           window.removeEventListener('proactive-message-sent', handler);
           document.removeEventListener('visibilitychange', onVisible);
       };
-  }, [characters]);
+  }, [characters, sendProactiveNativeNotification]);
 
   // ─── Global Proactive Message Handler ───
   // Registered at OS level so it works even when Chat is not open.
@@ -1006,10 +1030,11 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
 
               if (aiContent) {
                   await DB.saveMessage({ charId, role: 'assistant', type: 'text', content: aiContent });
+                  const preview = aiContent.replace(/\s+/g, ' ').trim().slice(0, 120) || `${char.name} sent a proactive message`;
 
                   // 6. Notify OS for unread badge + toast
                   window.dispatchEvent(new CustomEvent('proactive-message-sent', {
-                      detail: { charId, charName: char.name }
+                      detail: { charId, charName: char.name, body: preview }
                   }));
               }
           } catch (err) {
@@ -1269,7 +1294,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
   const handleSetActiveCharacter = (id: string) => { setActiveCharacterId(id); localStorage.setItem('os_last_active_char_id', id); };
   const addToast = (message: string, type: Toast['type'] = 'info') => { const id = Date.now().toString(); setToasts(prev => [...prev, { id, message, type }]); setTimeout(() => { setToasts(prev => prev.filter(t => t.id !== id)); }, 3000); };
 
-  // --- APPEARANCE PRESETS (independent from settings export/import) ---
+  // --- APPEARANCE PRESETS ---
   const saveAppearancePreset = async (name: string) => {
       const preset: AppearancePreset = {
           id: `ap_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
@@ -1441,7 +1466,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               'room_notes', 'groups', 'journal_stickers', 'social_posts', 'courses', 'games', 'worldbooks', 'novels', 'songs',
               'bank_transactions', 'bank_data',
               'xhs_activities', 'xhs_stock',
-              'quizzes'
+              'quizzes', 'guidebook', 'scheduled_messages', 'life_sim'
           ];
 
           if (mode === 'full') {
@@ -1460,12 +1485,18 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
 
           const backupData: Partial<FullBackupData> = {
               timestamp: Date.now(),
-              version: 2,
+              version: 3,
               apiConfig: (mode === 'text_only' || mode === 'full') ? apiConfig : undefined,
               apiPresets: (mode === 'text_only' || mode === 'full') ? apiPresets : undefined,
               availableModels: (mode === 'text_only' || mode === 'full') ? availableModels : undefined,
               realtimeConfig: (mode === 'text_only' || mode === 'full') ? realtimeConfig : undefined,
               theme: theme, // Include theme in all modes (text/media)
+              customIcons: (mode === 'text_only' || mode === 'media_only' || mode === 'full')
+                  ? { ...customIcons }
+                  : undefined,
+              appearancePresets: (mode === 'text_only' || mode === 'media_only' || mode === 'full')
+                  ? appearancePresets.map(p => ({ ...p }))
+                  : undefined,
               
               socialAppData: (mode === 'text_only' || mode === 'media_only' || mode === 'full') ? {
                   charHandles: JSON.parse(localStorage.getItem('spark_char_handles') || '{}'),
@@ -1491,11 +1522,15 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               if (backupData.socialAppData?.userBg) backupData.socialAppData.userBg = processObject(backupData.socialAppData.userBg);
               if (backupData.roomCustomAssets) backupData.roomCustomAssets = processObject(backupData.roomCustomAssets);
               if (backupData.theme) backupData.theme = processObject(backupData.theme);
+              if (backupData.customIcons) backupData.customIcons = processObject(backupData.customIcons);
+              if (backupData.appearancePresets) backupData.appearancePresets = processObject(backupData.appearancePresets);
           } else {
               // Strip images for text only
               if (backupData.socialAppData?.userProfile) backupData.socialAppData.userProfile = stripBase64(backupData.socialAppData.userProfile);
               if (backupData.socialAppData?.userBg) backupData.socialAppData.userBg = stripBase64(backupData.socialAppData.userBg);
               if (backupData.roomCustomAssets) backupData.roomCustomAssets = stripBase64(backupData.roomCustomAssets);
+              if (backupData.customIcons) backupData.customIcons = stripBase64(backupData.customIcons);
+              if (backupData.appearancePresets) backupData.appearancePresets = stripBase64(backupData.appearancePresets);
               if (backupData.theme) {
                   // Save preset decoration content before stripping (SVGs start with data:image and would be stripped)
                   const savedPresetDecos = backupData.theme.desktopDecorations
@@ -1603,6 +1638,9 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   case 'xhs_activities': backupData.xhsActivities = processedData; break;
                   case 'xhs_stock': backupData.xhsStockImages = processedData; break;
                   case 'quizzes': backupData.quizSessions = processedData; break;
+                  case 'guidebook': backupData.guidebookSessions = processedData; break;
+                  case 'scheduled_messages': backupData.scheduledMessages = processedData; break;
+                  case 'life_sim': backupData.lifeSimState = Array.isArray(processedData) ? (processedData[0] || null) : (processedData || null); break;
               }
 
               await new Promise(resolve => setTimeout(resolve, 10));
@@ -1725,6 +1763,30 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           if (data.apiPresets) savePresets(data.apiPresets);
           if (data.realtimeConfig) updateRealtimeConfig(data.realtimeConfig); // 恢复实时感知配置
 
+          if (data.customIcons !== undefined || data.appearancePresets !== undefined) {
+              const existingAssets = await DB.getAllAssets();
+              if (Array.isArray(existingAssets)) {
+                  for (const asset of existingAssets) {
+                      if (data.customIcons !== undefined && asset.id.startsWith('icon_')) {
+                          await DB.deleteAsset(asset.id);
+                      }
+                      if (data.appearancePresets !== undefined && asset.id.startsWith('appearance_preset_')) {
+                          await DB.deleteAsset(asset.id);
+                      }
+                  }
+              }
+              if (data.customIcons) {
+                  for (const [appId, iconUrl] of Object.entries(data.customIcons)) {
+                      await DB.saveAsset(`icon_${appId}`, iconUrl);
+                  }
+              }
+              if (data.appearancePresets) {
+                  for (const preset of data.appearancePresets) {
+                      await DB.saveAsset(`appearance_preset_${preset.id}`, JSON.stringify(preset));
+                  }
+              }
+          }
+
           // Restore Study Room settings
           if (data.studyApiConfig) localStorage.setItem('study_api_config', JSON.stringify(data.studyApiConfig));
           if (data.studyTutorPresets) localStorage.setItem('study_tutor_presets', JSON.stringify(data.studyTutorPresets));
@@ -1756,13 +1818,23 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           const novelList = await DB.getAllNovels();
           const songList = await DB.getAllSongs();
           
-          if (data.assets) {
+          if (data.assets || data.customIcons !== undefined || data.appearancePresets !== undefined) {
               const assets = await DB.getAllAssets();
               const loadedIcons: Record<string, string> = {};
+              const loadedPresets: AppearancePreset[] = [];
               if (Array.isArray(assets)) {
-                  assets.forEach(a => { if (a.id.startsWith('icon_')) loadedIcons[a.id.replace('icon_', '')] = a.data; });
+                  assets.forEach(a => {
+                      if (a.id.startsWith('icon_')) loadedIcons[a.id.replace('icon_', '')] = a.data;
+                      if (a.id.startsWith('appearance_preset_')) {
+                          try {
+                              loadedPresets.push(JSON.parse(a.data));
+                          } catch {}
+                      }
+                  });
               }
               setCustomIcons(loadedIcons);
+              loadedPresets.sort((a, b) => b.createdAt - a.createdAt);
+              setAppearancePresets(loadedPresets);
           }
 
           if (chars.length > 0) setCharacters(chars);

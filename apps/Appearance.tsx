@@ -5,6 +5,7 @@ import { OSTheme, DesktopDecoration, AppearancePreset, Toast } from '../types';
 import { INSTALLED_APPS, Icons } from '../constants';
 import { processImage } from '../utils/file';
 import { Sparkle } from '@phosphor-icons/react';
+import { ChatAppearanceEditor as ModularChatAppearanceEditor } from '../components/appearance/ChatAppearanceEditor';
 
 const TwemojiImg: React.FC<{ code: string; alt?: string; className?: string }> = ({ code, alt, className = 'w-4 h-4 inline-block' }) => (
   <img src={`https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/${code}.png`} alt={alt || ''} className={className} draggable={false} />
@@ -302,7 +303,7 @@ const PresetManager: React.FC<PresetManagerProps> = ({ presets, onSave, onApply,
             {/* Import */}
             <section className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100">
                 <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-3">导入外观预设</h2>
-                <p className="text-[10px] text-slate-400 mb-3">从 .json 文件导入他人分享的外观预设。外观预设与设置导出/导入互不影响。</p>
+                <p className="text-[10px] text-slate-400 mb-3">从 .json 文件导入他人分享的外观预设。系统整合备份也会包含当前外观设置，单独预设文件更适合分享。</p>
                 <input type="file" ref={importRef} className="hidden" accept=".json" onChange={handleImport} />
                 <button onClick={() => importRef.current?.click()}
                     className="w-full py-2.5 bg-gradient-to-r from-blue-50 to-cyan-50 text-blue-500 font-bold text-xs rounded-xl border border-blue-200 active:scale-95 transition-transform flex items-center justify-center gap-2">
@@ -409,7 +410,7 @@ const PresetManager: React.FC<PresetManagerProps> = ({ presets, onSave, onApply,
             </section>
 
             <div className="text-[10px] text-slate-400 text-center px-4 pb-4">
-                外观预设独立于设置的导出/导入，不会互相覆盖。你可以保存多个预设并随时切换。
+                外观预设既可以单独导入/导出，也会随系统整合备份一起保存。你可以保存多个预设并随时切换。
             </div>
         </div>
     );
@@ -1096,7 +1097,7 @@ const Appearance: React.FC = () => {
                 currentTheme={theme}
             />
         ) : activeTab === 'chat' ? (
-            <ChatAppearanceEditor theme={theme} updateTheme={updateTheme} />
+            <ModularChatAppearanceEditor theme={theme} updateTheme={updateTheme} />
         ) : null}
       </div>
     </div>

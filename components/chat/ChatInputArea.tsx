@@ -37,7 +37,9 @@ interface ChatInputAreaProps {
     // Emotion
     isEmotionEnabled?: boolean;
     // Input style
-    inputStyle?: 'default' | 'rounded' | 'flat';
+    inputStyle?: 'default' | 'rounded' | 'flat' | 'wechat' | 'ios' | 'telegram' | 'discord' | 'pixel';
+    sendButtonStyle?: 'circle' | 'pill' | 'minimal';
+    chromeStyle?: 'soft' | 'flat' | 'floating' | 'pixel';
 }
 
 const ChatInputArea: React.FC<ChatInputAreaProps> = ({
@@ -51,6 +53,8 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
     isProactiveActive,
     isEmotionEnabled,
     inputStyle = 'default',
+    sendButtonStyle = 'circle',
+    chromeStyle = 'soft',
 }) => {
     const chatImageInputRef = useRef<HTMLInputElement>(null);
     const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -152,11 +156,61 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
         }
     };
 
+    const isDiscordStyle = inputStyle === 'discord';
+    const isPixelStyle = inputStyle === 'pixel' || chromeStyle === 'pixel';
+    const shellClass = chromeStyle === 'pixel'
+        ? 'bg-[#eadfce] border-t-[3px] border-[#8f674a] shadow-[0_-4px_0_rgba(123,90,64,0.15)]'
+        : chromeStyle === 'flat'
+          ? 'bg-white border-t border-slate-200 shadow-none'
+          : chromeStyle === 'floating'
+            ? 'bg-white/80 backdrop-blur-2xl border-t border-white/60 shadow-[0_-12px_30px_rgba(148,163,184,0.18)]'
+            : 'bg-white/90 backdrop-blur-2xl border-t border-slate-200/50 shadow-[0_-5px_15px_rgba(0,0,0,0.02)]';
+    const actionButtonClass = isPixelStyle
+        ? 'w-11 h-11 shrink-0 rounded-[4px] border-2 border-[#8f674a] bg-[#f8f0e0] flex items-center justify-center text-[#8f674a] hover:bg-[#fff7ed] transition-colors'
+        : isDiscordStyle
+          ? 'w-11 h-11 shrink-0 rounded-full bg-slate-800 flex items-center justify-center text-slate-200 hover:bg-slate-700 transition-colors'
+          : 'w-11 h-11 shrink-0 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200 transition-colors';
+    const inputWrapClass =
+        inputStyle === 'rounded'
+            ? 'bg-slate-100 rounded-full'
+            : inputStyle === 'flat'
+              ? 'bg-transparent border-b border-slate-200 rounded-none'
+              : inputStyle === 'wechat'
+                ? 'bg-white border border-slate-200 rounded-full'
+                : inputStyle === 'ios'
+                  ? 'bg-white/80 border border-white/80 shadow-inner rounded-[26px]'
+                  : inputStyle === 'telegram'
+                    ? 'bg-white border border-sky-100 rounded-2xl'
+                    : inputStyle === 'discord'
+                      ? 'bg-slate-800 border border-white/10 rounded-2xl text-white'
+                      : inputStyle === 'pixel'
+                        ? 'bg-[#f8f0e0] border-2 border-[#8f674a] rounded-[4px]'
+                        : 'bg-slate-100 rounded-[24px]';
+    const sendButtonClass =
+        sendButtonStyle === 'pill'
+            ? isPixelStyle
+                ? 'h-11 min-w-[72px] shrink-0 rounded-[4px] border-2 border-[#8f674a] bg-[#c99872] px-4 text-[11px] font-bold text-[#fff7ed]'
+                : 'h-11 min-w-[72px] shrink-0 rounded-full bg-primary px-4 text-[11px] font-bold text-white shadow-lg'
+            : sendButtonStyle === 'minimal'
+              ? isPixelStyle
+                ? 'w-11 h-11 shrink-0 rounded-[4px] border-2 border-[#8f674a] bg-[#c99872] text-[#fff7ed] flex items-center justify-center'
+                : isDiscordStyle
+                  ? 'w-11 h-11 shrink-0 rounded-full bg-transparent text-sky-300 flex items-center justify-center'
+                  : 'w-11 h-11 shrink-0 rounded-full bg-transparent text-primary flex items-center justify-center'
+              : isPixelStyle
+                ? 'w-11 h-11 shrink-0 rounded-[4px] border-2 border-[#8f674a] bg-[#c99872] text-[#fff7ed] flex items-center justify-center'
+                : 'w-11 h-11 shrink-0 rounded-full bg-primary text-white flex items-center justify-center transition-all shadow-lg';
+    const panelClass = isPixelStyle
+        ? 'bg-[#f8f0e0] border-t-2 border-[#8f674a]'
+        : isDiscordStyle
+          ? 'bg-slate-900/95 border-t border-white/10'
+          : 'bg-slate-50 border-t border-slate-200/60';
+
     return (
-        <div className="bg-white/90 backdrop-blur-2xl border-t border-slate-200/50 pb-safe shrink-0 z-40 shadow-[0_-5px_15px_rgba(0,0,0,0.02)] relative">
+        <div className={`${shellClass} pb-safe shrink-0 z-40 relative`}>
             
             {selectionMode ? (
-                <div className="p-3 flex gap-2 bg-white/50 backdrop-blur-md">
+                <div className={`p-3 flex gap-2 ${isPixelStyle ? 'bg-[#f3e7d6]' : isDiscordStyle ? 'bg-slate-900/60 backdrop-blur-md' : 'bg-white/50 backdrop-blur-md'}`}>
                     {onForwardSelected && (
                         <button
                             onClick={onForwardSelected}
@@ -177,36 +231,36 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                 </div>
             ) : (
                 <div className="p-3 px-4 flex gap-3 items-end">
-                    <button onClick={() => setShowPanel(showPanel === 'actions' ? 'none' : 'actions')} className="w-11 h-11 shrink-0 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200 transition-colors">
+                    <button onClick={() => setShowPanel(showPanel === 'actions' ? 'none' : 'actions')} className={actionButtonClass}>
                         <Plus className="w-6 h-6" weight="bold" />
                     </button>
-                    <div className={`flex-1 min-w-0 flex items-center px-1 border border-transparent focus-within:bg-white focus-within:border-primary/30 transition-all overflow-hidden ${inputStyle === 'rounded' ? 'bg-slate-100 rounded-full' : inputStyle === 'flat' ? 'bg-transparent border-b border-slate-200 rounded-none' : 'bg-slate-100 rounded-[24px]'}`}>
+                    <div className={`flex-1 min-w-0 flex items-center px-1 transition-all overflow-hidden ${inputWrapClass} ${isPixelStyle ? 'focus-within:bg-[#fff7ed]' : 'border border-transparent focus-within:bg-white focus-within:border-primary/30'}`}>
                         <textarea 
                             rows={1} 
                             value={input} 
                             onChange={(e) => setInput(e.target.value)} 
                             onKeyDown={handleKeyDown} 
-                            className="flex-1 min-w-0 bg-transparent px-4 py-3 text-[15px] resize-none max-h-24 no-scrollbar" 
+                            className={`flex-1 min-w-0 bg-transparent px-4 py-3 text-[15px] resize-none max-h-24 no-scrollbar ${isDiscordStyle ? 'text-white placeholder:text-slate-500' : isPixelStyle ? 'text-[#6a4c35] placeholder:text-[#9b8677]' : ''}`} 
                             placeholder="Message..." 
                             style={{ height: 'auto' }} 
                         />
-                        <button onClick={() => setShowPanel(showPanel === 'emojis' ? 'none' : 'emojis')} className="p-2 shrink-0 text-slate-400 hover:text-primary">
+                        <button onClick={() => setShowPanel(showPanel === 'emojis' ? 'none' : 'emojis')} className={`p-2 shrink-0 ${isDiscordStyle ? 'text-slate-400 hover:text-sky-300' : isPixelStyle ? 'text-[#8f674a] hover:text-[#a16207]' : 'text-slate-400 hover:text-primary'}`}>
                             <Smiley className="w-6 h-6" weight="regular" />
                         </button>
                     </div>
                     <button 
                         onClick={onSend} 
                         disabled={!input.trim()} 
-                        className={`w-11 h-11 shrink-0 rounded-full flex items-center justify-center transition-all ${input.trim() ? 'bg-primary text-white shadow-lg' : 'bg-slate-200 text-slate-400'}`}
+                        className={`${sendButtonClass} ${input.trim() ? '' : 'opacity-45 shadow-none'}`}
                     >
-                        <PaperPlaneTilt className="w-5 h-5" weight="fill" />
+                        {sendButtonStyle === 'pill' ? <span>发送</span> : <PaperPlaneTilt className="w-5 h-5" weight="fill" />}
                     </button>
                 </div>
             )}
 
             {/* Panels */}
             {showPanel !== 'none' && !selectionMode && (
-                <div className="bg-slate-50 h-72 border-t border-slate-200/60 overflow-hidden relative z-0 flex flex-col">
+                <div className={`${panelClass} h-72 overflow-hidden relative z-0 flex flex-col`}>
                     
                     {/* Emojis Panel with Categories */}
                     {showPanel === 'emojis' && (

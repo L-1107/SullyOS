@@ -202,7 +202,7 @@ interface MessageItemProps {
     // Chat layout customization
     avatarShape?: 'circle' | 'rounded' | 'square';
     avatarSize?: 'small' | 'medium' | 'large';
-    bubbleVariant?: 'modern' | 'flat' | 'outline' | 'shadow';
+    bubbleVariant?: 'modern' | 'flat' | 'outline' | 'shadow' | 'wechat' | 'ios';
     messageSpacing?: 'compact' | 'default' | 'spacious';
     showTimestamp?: 'always' | 'hover' | 'never';
 }
@@ -911,6 +911,8 @@ const MessageItem = React.memo(({
         ...(bubbleVariant === 'outline' ? { border: `2px solid ${styleConfig.backgroundColor}`, boxShadow: 'none' } : {}),
         ...(bubbleVariant === 'shadow' ? { boxShadow: '0 4px 12px rgba(0,0,0,0.12)' } : {}),
         ...(bubbleVariant === 'flat' ? { boxShadow: 'none' } : {}),
+        ...(bubbleVariant === 'wechat' ? { boxShadow: 'none', border: '1px solid rgba(15,23,42,0.05)' } : {}),
+        ...(bubbleVariant === 'ios' ? { boxShadow: '0 10px 24px rgba(148,163,184,0.16)', border: '1px solid rgba(255,255,255,0.75)', backdropFilter: 'blur(12px)' } : {}),
     };
 
     // --- Inline formatting parser: code → bold → italic → plain ---
@@ -1045,7 +1047,7 @@ const MessageItem = React.memo(({
     return commonLayout(
         <div className={isVoiceOnlyMsg
             ? 'relative animate-fade-in'
-            : `relative ${bubbleVariant === 'flat' || bubbleVariant === 'outline' ? '' : 'shadow-sm '}px-5 py-3 animate-fade-in ${bubbleVariant === 'outline' ? '' : 'border border-black/5 '}active:scale-[0.98] transition-transform overflow-visible ${isUser ? 'sully-bubble-user' : 'sully-bubble-ai'}`}
+            : `relative ${bubbleVariant === 'flat' || bubbleVariant === 'outline' || bubbleVariant === 'wechat' ? '' : 'shadow-sm '}px-5 py-3 animate-fade-in ${bubbleVariant === 'outline' ? '' : 'border border-black/5 '}active:scale-[0.98] transition-transform overflow-visible ${isUser ? 'sully-bubble-user' : 'sully-bubble-ai'}`}
             style={isVoiceOnlyMsg ? undefined : containerStyle}>
 
             {/* Layer 1: Background Image with Independent Opacity */}

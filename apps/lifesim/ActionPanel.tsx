@@ -95,7 +95,7 @@ const ActionPanel: React.FC<{
                 </div>
 
                 {/* Content */}
-                <div className="overflow-y-auto flex-1" style={{ padding: 10 }}>
+                <div className="overflow-y-auto overflow-x-hidden no-scrollbar flex-1" style={{ padding: 10, minWidth: 0 }}>
 
                     {mode === 'stir' && (
                         <div className="space-y-2.5">
