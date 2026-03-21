@@ -2071,7 +2071,8 @@ export const useChatAI = ({
     };
 
     const stopProactiveChat = () => {
-        ProactiveChat.stop();
+        if (!char) return;
+        ProactiveChat.stop(char.id);
     };
 
     const isProactiveActive = char ? ProactiveChat.isActiveFor(char.id) : false;

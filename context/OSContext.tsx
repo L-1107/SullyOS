@@ -952,18 +952,34 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
   // ─── Global Proactive Message Handler ───
   // Registered at OS level so it works even when Chat is not open.
   const proactiveRunningRef = useRef(false);
+  const proactiveQueueRef = useRef<string[]>([]);
   useEffect(() => {
       if (!isDataLoaded) return;
 
-      ProactiveChat.onTrigger(async (charId: string) => {
-          // Prevent concurrent runs
-          if (proactiveRunningRef.current) return;
+      const drainQueuedProactive = () => {
+          const nextQueuedCharId = proactiveQueueRef.current.shift();
+          if (nextQueuedCharId) {
+              void runProactive(nextQueuedCharId);
+          }
+      };
+
+      const runProactive = async (charId: string) => {
+          if (proactiveRunningRef.current) {
+              if (!proactiveQueueRef.current.includes(charId)) {
+                  proactiveQueueRef.current.push(charId);
+              }
+              return;
+          }
 
           const char = characters.find(c => c.id === charId);
-          if (!char) return;
+          if (!char) {
+              drainQueuedProactive();
+              return;
+          }
 
           // Respect per-character proactive config
           if (char.proactiveConfig && !char.proactiveConfig.enabled) {
+              drainQueuedProactive();
               console.log(`🔕 [Proactive/Global] Skipped for ${char.name}: disabled`);
               return;
           }
@@ -972,7 +988,10 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           const pCfg = char.proactiveConfig;
           const useSecondary = pCfg?.useSecondaryApi && pCfg.secondaryApi?.baseUrl;
           const api = useSecondary ? pCfg!.secondaryApi! : apiConfig;
-          if (!api.baseUrl) return;
+          if (!api.baseUrl) {
+              drainQueuedProactive();
+              return;
+          }
 
           proactiveRunningRef.current = true;
           console.log(`🔔 [Proactive/Global] Trigger fired for ${char.name}${useSecondary ? ' (副API)' : ''}`);
@@ -1041,7 +1060,12 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               console.error(`[Proactive/Global] Error for ${char.name}:`, err);
           } finally {
               proactiveRunningRef.current = false;
+              drainQueuedProactive();
           }
+      };
+
+      ProactiveChat.onTrigger((charId: string) => {
+          void runProactive(charId);
       });
 
       return () => {
