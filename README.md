@@ -25,13 +25,13 @@ View your app in AI Studio: https://ai.studio/apps/drive/1DiUqAZz4qIDr0G34xUSl5u
 
 ### 一次性设置
 
-1. 把代码推送到 GitHub 仓库的 `main` 分支。
+1. 把代码推送到 GitHub 仓库的 `main` 或 `master` 分支。
 2. 打开仓库 **Settings → Pages**。
 3. 在 **Build and deployment** 里选择 **Source: GitHub Actions**。
 
 ### 之后怎么发布
 
-- 每次 push 到 `main` 都会自动执行构建并发布。
+- 每次 push 到 `main` 或 `master` 都会自动执行构建并发布。
 - 你也可以在 **Actions** 页面手动运行 `Deploy to GitHub Pages`。
 
 ### 本地先验证构建
