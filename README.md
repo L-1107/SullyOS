@@ -181,6 +181,17 @@ A: 就是我也不知道什么意思。系统正在哈我。
 
 所有数据都是 **local-first**，没有后端服务器这个概念（除了那个可选的云端备份）。
 
+## 鸣谢（这些人对本项目有恩）
+
+**主动消息 2.0**  
+对接了 TO 佬的 [ReiStandard](https://github.com/Tosd0/ReiStandard/) 协议，让角色能主动发消息烦你。
+
+**小红书 Skill**  
+对接了 [xiaohongshu-skills](https://github.com/autoclaw-cc/xiaohongshu-skills)，让角色能真·发小红书。  
+本地部署教程看这里：[真实小红书本地部署指南](https://www.kdocs.cn/l/chctbSTPfm4L)
+
+> 没有这些人，SullyOS 会少很多功能。数据库暂时停止咕咕叫以表敬意。
+
 ## 开源协议
 
 MIT。随便用，但别把我卖了。卖也卖不了几个钱，不如留着陪你聊天。
