@@ -1,7 +1,7 @@
 # AetherOS // 小手机模拟器
 
 <div align="center">
-<img width="800" alt="banner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+<img width="800" alt="banner" src="https://sharkpan.xyz/f/ylWpfN/sDN.png" />
 </div>
 
 ---
