@@ -649,6 +649,7 @@ ${memoryContext}
 严格 JSON 格式回复：
 {"style": "emotional", "ruminationTendency": 0.3, "reasoning": "理由"}`;
 
+    console.log(`🎭 [PersonalityDetect] ${charName} → 调用 LLM（model=${llmConfig.model}, max_tokens=8000）`);
     try {
         const data = await safeFetchJson(
             `${llmConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`,
@@ -665,18 +666,28 @@ ${memoryContext}
                         { role: 'user', content: '请判断。' },
                     ],
                     temperature: 0.3,
-                    max_tokens: 300,
+                    // 8000：给 think 型模型留足思考空间，300 会被 reasoning 吃光
+                    max_tokens: 8000,
                     stream: false,
                 }),
             }
         );
 
         const reply = data.choices?.[0]?.message?.content || '';
+        const finishReason = data.choices?.[0]?.finish_reason;
+        const usage = data.usage;
+        console.log(`🎭 [PersonalityDetect] ${charName} LLM 原始返回 (finish=${finishReason}, usage=${JSON.stringify(usage || {})}):\n${reply}`);
 
         // 尝试提取 JSON
         const jsonMatch = reply.match(/\{[\s\S]*?\}/);
         if (jsonMatch) {
-            const parsed = JSON.parse(jsonMatch[0]);
+            let parsed: any;
+            try {
+                parsed = JSON.parse(jsonMatch[0]);
+            } catch (parseErr: any) {
+                console.warn(`🎭 [PersonalityDetect] ${charName} JSON 解析失败: ${parseErr.message}，原始片段: ${jsonMatch[0]}`);
+                throw new Error(`性格检测: JSON 解析失败 (${parseErr.message})`);
+            }
             const style = VALID_STYLES.includes(parsed.style) ? parsed.style : 'emotional';
             const rawRum = parseFloat(parsed.ruminationTendency);
             const ruminationTendency = isNaN(rawRum) ? 0.3 : Math.max(0, Math.min(1, Math.round(rawRum * 10) / 10));
@@ -707,9 +718,10 @@ ${memoryContext}
             return { style, ruminationTendency, reasoning };
         }
     } catch (err: any) {
-        console.warn(`🎭 [PersonalityDetect] LLM 调用失败: ${err.message}`);
-        throw new Error(`性格检测失败: ${err.message}`);
+        console.warn(`🎭 [PersonalityDetect] ${charName} LLM 调用失败:`, err?.message || err, err?.stack || '');
+        throw new Error(`性格检测失败: ${err?.message || err}`);
     }
 
+    console.warn(`🎭 [PersonalityDetect] ${charName} LLM 未返回有效 JSON（回复中找不到 {...} 片段）`);
     throw new Error('性格检测: LLM 未返回有效 JSON');
 }

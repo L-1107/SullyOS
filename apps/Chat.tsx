@@ -69,6 +69,14 @@ const Chat: React.FC = () => {
     const [archiveProgress, setArchiveProgress] = useState('');
     const [showProactiveModal, setShowProactiveModal] = useState(false);
 
+    // 🛟 人格抢救 Modal：角色被"情感型 0.3"默认值卡住时，进聊天强制弹窗重跑一次检测
+    type PersonalityRescueState =
+        | { open: false }
+        | { open: true; charId: string; charName: string; phase: 'rescuing' }
+        | { open: true; charId: string; charName: string; phase: 'done'; result: { style: string; ruminationTendency: number; reasoning: string } }
+        | { open: true; charId: string; charName: string; phase: 'failed'; error: string };
+    const [personalityRescue, setPersonalityRescue] = useState<PersonalityRescueState>({ open: false });
+
     // Archive Prompts State
     const [archivePrompts, setArchivePrompts] = useState<{id: string, name: string, content: string}[]>(DEFAULT_ARCHIVE_PROMPTS);
     const [selectedPromptId, setSelectedPromptId] = useState<string>('preset_rational');
@@ -555,6 +563,54 @@ const Chat: React.FC = () => {
         window.addEventListener('emotion-updated', handler);
         return () => window.removeEventListener('emotion-updated', handler);
     }, [activeCharacterId, updateCharacter]);
+
+    // 🛟 人格抢救：进聊天后发现角色被卡在"情感型 0.3"默认值，强制弹窗重跑一次检测
+    // 触发条件必须是两个值都显式命中默认，且这个角色历史上还没抢救过
+    useEffect(() => {
+        if (!char) return;
+        const style = (char as any).personalityStyle;
+        const rumination = (char as any).ruminationTendency;
+        if (style !== 'emotional' || rumination !== 0.3) return;
+
+        const rescuedKey = `mp_personality_rescued_v1_${char.id}`;
+        if (localStorage.getItem(rescuedKey)) return;
+
+        const mpLLM = memoryPalaceConfig?.lightLLM;
+        if (!mpLLM?.baseUrl || !mpLLM?.apiKey) return;
+
+        // 已经在抢救同一个角色就不重复触发
+        if (personalityRescue.open && personalityRescue.charId === char.id) return;
+
+        let cancelled = false;
+        const rescueCharId = char.id;
+        const rescueCharName = char.name;
+        const persona = [char.systemPrompt || '', char.worldview || ''].filter(Boolean).join('\n');
+
+        setPersonalityRescue({ open: true, charId: rescueCharId, charName: rescueCharName, phase: 'rescuing' });
+        console.log(`🛟 [PersonalityRescue] ${rescueCharName} 当前是"情感型 0.3"默认值，弹窗抢救中...`);
+
+        (async () => {
+            try {
+                const { detectPersonalityStyle } = await import('../utils/memoryPalace/digestion');
+                const result = await detectPersonalityStyle(rescueCharId, rescueCharName, persona, mpLLM);
+                if (cancelled) return;
+                try { localStorage.setItem(rescuedKey, '1'); } catch {}
+                updateCharacter(rescueCharId, {
+                    personalityStyle: result.style,
+                    ruminationTendency: result.ruminationTendency,
+                } as any);
+                setPersonalityRescue({ open: true, charId: rescueCharId, charName: rescueCharName, phase: 'done', result });
+            } catch (e: any) {
+                if (cancelled) return;
+                // 抢救失败不设 rescuedKey —— 下次打开聊天再试一次
+                console.warn(`🛟 [PersonalityRescue] ${rescueCharName} 抢救失败:`, e?.message || e);
+                setPersonalityRescue({ open: true, charId: rescueCharId, charName: rescueCharName, phase: 'failed', error: e?.message || String(e) });
+            }
+        })();
+
+        return () => { cancelled = true; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [char?.id, (char as any)?.personalityStyle, (char as any)?.ruminationTendency, memoryPalaceConfig?.lightLLM?.baseUrl, memoryPalaceConfig?.lightLLM?.apiKey]);
 
     const handleInputChange = (val: string) => {
         setInput(val);
@@ -1055,6 +1111,15 @@ const Chat: React.FC = () => {
                 console.log(`🏰 [ForceVectorize] 第 ${round} 轮：处理 ${batch.length} 条消息（hwm=${hwm}，剩余 ${unprocessed.length}）`);
 
                 const pipelineResult = await processNewMessages(batch, char.id, char.name, mpEmb, mpLLM, userProfile?.name || '', true);
+
+                // 软跳过：缓冲区还没到阈值 / 热区还没被挤出 / 已有任务在跑 —— 不是 LLM 失败
+                if (pipelineResult?.skipReason) {
+                    if (pipelineResult.skipReason !== 'lock') {
+                        addToast('当前聊天不足以触发总结，请保持这个状态聊天~', 'info');
+                    }
+                    break;
+                }
+
                 totalProcessed += batch.length;
 
                 // 累积自动归档，统一在循环结束后 updateCharacter
@@ -1960,6 +2025,92 @@ const Chat: React.FC = () => {
             )}
 
             {/* 情绪设置已嵌入日程 Modal（与日程强制同步开/关），不再单独渲染 */}
+
+            {/* 🛟 人格抢救 Modal —— 把"情感型 0.3"默认值卡住的角色偷偷救活 */}
+            <Modal
+                isOpen={personalityRescue.open}
+                title={
+                    personalityRescue.open && personalityRescue.phase === 'rescuing' ? '糯米鸡抢救中…' :
+                    personalityRescue.open && personalityRescue.phase === 'done' ? '抢救完成！' :
+                    personalityRescue.open && personalityRescue.phase === 'failed' ? '抢救失败' :
+                    '糯米鸡抢救中…'
+                }
+                onClose={() => {
+                    // rescuing 阶段不给关，必须看到结果；其它阶段允许关闭
+                    if (personalityRescue.open && personalityRescue.phase === 'rescuing') return;
+                    setPersonalityRescue({ open: false });
+                }}
+                footer={
+                    personalityRescue.open && personalityRescue.phase !== 'rescuing' ? (
+                        <button
+                            onClick={() => setPersonalityRescue({ open: false })}
+                            className="w-full py-3 bg-purple-600 text-white font-bold rounded-2xl active:scale-95 transition-transform"
+                        >
+                            好
+                        </button>
+                    ) : undefined
+                }
+            >
+                {personalityRescue.open && personalityRescue.phase === 'rescuing' && (
+                    <div className="space-y-3 py-2">
+                        <p className="text-sm text-slate-600 leading-relaxed text-center">
+                            角色的后台有点 bug，糯米鸡抢救一下，马上就好 ✨
+                        </p>
+                        <p className="text-xs text-slate-400 text-center">
+                            正在重新分析 <span className="font-semibold text-slate-600">{personalityRescue.charName}</span> 的认知风格…
+                        </p>
+                        <div className="flex justify-center pt-2">
+                            <div className="w-8 h-8 border-4 border-purple-200 border-t-purple-600 rounded-full animate-spin" />
+                        </div>
+                    </div>
+                )}
+                {personalityRescue.open && personalityRescue.phase === 'done' && (() => {
+                    const styleLabel =
+                        personalityRescue.result.style === 'emotional' ? '情感型' :
+                        personalityRescue.result.style === 'narrative' ? '叙事型' :
+                        personalityRescue.result.style === 'imagery' ? '意象型' :
+                        personalityRescue.result.style === 'analytical' ? '分析型' :
+                        personalityRescue.result.style;
+                    return (
+                        <div className="space-y-3 py-2">
+                            <p className="text-xs text-slate-400 text-center">
+                                <span className="font-semibold text-slate-600">{personalityRescue.charName}</span> 的认知参数已重新生成 🎉
+                            </p>
+                            <div className="bg-purple-50 rounded-2xl p-4 space-y-2 border border-purple-100">
+                                <div className="flex justify-between text-sm">
+                                    <span className="text-slate-500">认知风格</span>
+                                    <span className="font-bold text-purple-700">{styleLabel}</span>
+                                </div>
+                                <div className="flex justify-between text-sm">
+                                    <span className="text-slate-500">反刍倾向</span>
+                                    <span className="font-bold text-purple-700">{personalityRescue.result.ruminationTendency.toFixed(1)}</span>
+                                </div>
+                            </div>
+                            {personalityRescue.result.reasoning && (
+                                <p className="text-xs text-slate-500 leading-relaxed px-1">
+                                    <span className="text-slate-400">糯米鸡的判断：</span>
+                                    {personalityRescue.result.reasoning}
+                                </p>
+                            )}
+                        </div>
+                    );
+                })()}
+                {personalityRescue.open && personalityRescue.phase === 'failed' && (
+                    <div className="space-y-3 py-2">
+                        <p className="text-sm text-slate-600 text-center">
+                            糯米鸡也没救回来 😢
+                        </p>
+                        <p className="text-xs text-slate-400 leading-relaxed text-center">
+                            下次打开聊天再试一次，或去记忆宫殿检查一下副 API 配置。
+                        </p>
+                        <div className="bg-red-50 rounded-xl p-3 border border-red-100">
+                            <p className="text-[11px] text-red-600 break-all font-mono">
+                                {personalityRescue.error}
+                            </p>
+                        </div>
+                    </div>
+                )}
+            </Modal>
 
             {/* Forward Modal */}
             <Modal isOpen={showForwardModal} title="转发聊天记录" onClose={() => setShowForwardModal(false)}>
