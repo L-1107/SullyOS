@@ -419,12 +419,13 @@ export const ContextBuilder = {
             lines.push('');
         }
 
-        // —— 块 3: char 自己的歌单清单（独立于 user 听歌状态）——
-        // 之前这段塞在块 1 里，只有 user 在听歌时 char 才"记得"自己有什么歌单 ——
-        // 但 char 平时聊天里也可能被问到 / 主动提起自己的歌单，这份自我认知应该是常驻的。
-        // 只要 char 已初始化音乐人格就注入；内容保持克制（标题 + 数量 + mood + 一句描述）。
+        // —— 块 3: char 自己的歌单清单 ——
+        // 只在**有音乐上下文**（user 在听 OR char 自己在 schedule 里听）时注入。
+        // 没音乐上下文时不往 prompt 里塞这段 — 避免普通聊天被无关信息污染、
+        // 也避免 LLM 在没提示 add 语法的场合主动联想去操作歌单。
+        const hasMusicContext = !!(userListening && userListening.songName) || !!charListening?.songName;
         const profile = char.musicProfile;
-        if (profile && profile.playlists.length > 0) {
+        if (hasMusicContext && profile && profile.playlists.length > 0) {
             lines.push(`### 【你的歌单】`);
             for (const pl of profile.playlists) {
                 const desc = pl.description ? ` — ${pl.description}` : '';
