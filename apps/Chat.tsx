@@ -107,7 +107,17 @@ const Chat: React.FC = () => {
     const char = characters.find(c => c.id === activeCharacterId) || characters[0];
     charRef.current = char; // Keep ref in sync for async callbacks
     const currentThemeId = char?.bubbleStyle || 'default';
-    const activeTheme = useMemo(() => customThemes.find(t => t.id === currentThemeId) || PRESET_THEMES[currentThemeId] || PRESET_THEMES.default, [currentThemeId, customThemes]);
+    const activeTheme = useMemo(() => {
+        const fallback = PRESET_THEMES.default;
+        const found = customThemes.find(t => t.id === currentThemeId) || PRESET_THEMES[currentThemeId] || fallback;
+        // Defensive: legacy/imported themes may be missing `user` or `ai`, which would
+        // crash MessageItem when reading styleConfig.borderRadius. Fill from default.
+        return {
+            ...found,
+            user: { ...fallback.user, ...(found.user || {}) },
+            ai: { ...fallback.ai, ...(found.ai || {}) },
+        };
+    }, [currentThemeId, customThemes]);
     const draftKey = `chat_draft_${activeCharacterId}`;
 
     // Filter categories and emojis by active character's visibility (used for both AI prompt and UI)
