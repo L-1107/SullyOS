@@ -108,8 +108,42 @@ export function isDeadSubscriptionEndpoint(endpoint: string | null | undefined):
   return endpoint.includes('permanently-removed.invalid');
 }
 
-export async function getOrCreateSubscription(vapidPublicKey: string): Promise<SubscriptionInfo | null> {
-  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return null;
+/**
+ * Translate the browser's raw subscribe() rejection into a Chinese,
+ * end-user-actionable hint.  The common cases on Android phones without
+ * Google Play Services (or in third-party Chromium-based browsers that
+ * advertise `PushManager` but route through FCM internally) are
+ * `AbortError` / generic network errors when the FCM endpoint cannot be
+ * reached.  We surface those distinctly so the user knows it's not a
+ * permission issue.
+ */
+function explainSubscribeError(e: any): string {
+  const name = e?.name || '';
+  const msg = e?.message || String(e || '未知错误');
+  if (name === 'NotAllowedError') {
+    return '浏览器拒绝创建订阅（NotAllowedError）——通常是站点权限被拦截或处于隐身模式';
+  }
+  if (name === 'NotSupportedError') {
+    return '当前浏览器不支持 Web Push（NotSupportedError）——大概率是没有 Google Play Services 的安卓设备 / 国产精简浏览器';
+  }
+  if (name === 'AbortError' || /push service|FCM|network/i.test(msg)) {
+    return `连不上推送服务（${name || 'AbortError'}：${msg}）——多见于无 Google 服务的安卓机、被防火墙挡住 FCM、或浏览器内置推送通道被裁剪。换 Chrome / Edge / Firefox 桌面版试试，或翻到能访问 fcm.googleapis.com 的网络`;
+  }
+  if (name === 'InvalidStateError') {
+    return '订阅状态冲突（InvalidStateError）——可能旧订阅没清干净，再点一次"重置订阅"';
+  }
+  return `订阅创建失败（${name || 'Error'}：${msg}）`;
+}
+
+interface SubscribeAttempt {
+  sub: SubscriptionInfo | null;
+  reason?: string;
+}
+
+export async function getOrCreateSubscription(vapidPublicKey: string): Promise<SubscribeAttempt> {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    return { sub: null, reason: '当前浏览器不支持 Service Worker 或 Push API' };
+  }
 
   const reg = await navigator.serviceWorker.ready;
   let sub = await reg.pushManager.getSubscription();
@@ -140,9 +174,9 @@ export async function getOrCreateSubscription(vapidPublicKey: string): Promise<S
   if (!sub) {
     if (Notification.permission === 'default') {
       const perm = await Notification.requestPermission();
-      if (perm !== 'granted') return null;
+      if (perm !== 'granted') return { sub: null, reason: '通知权限未授予' };
     } else if (Notification.permission === 'denied') {
-      return null;
+      return { sub: null, reason: '通知权限已被拒绝（请到浏览器站点设置里手动开启）' };
     }
     try {
       sub = await reg.pushManager.subscribe({
@@ -151,7 +185,7 @@ export async function getOrCreateSubscription(vapidPublicKey: string): Promise<S
       });
     } catch (e) {
       console.warn('[ProactivePush] pushManager.subscribe failed', e);
-      return null;
+      return { sub: null, reason: explainSubscribeError(e) };
     }
   }
 
@@ -160,13 +194,13 @@ export async function getOrCreateSubscription(vapidPublicKey: string): Promise<S
   if (isDeadSubscriptionEndpoint(sub.endpoint)) {
     console.warn('[ProactivePush] subscribe() returned a dead sentinel endpoint; giving up');
     try { await sub.unsubscribe(); } catch { /* ignore */ }
-    return null;
+    return { sub: null, reason: '浏览器返回的订阅地址是 permanently-removed.invalid（zombie endpoint），无法投递' };
   }
 
   const p256dh = bytesToB64u(sub.getKey('p256dh'));
   const auth = bytesToB64u(sub.getKey('auth'));
-  if (!p256dh || !auth) return null;
-  return { endpoint: sub.endpoint, p256dh, auth };
+  if (!p256dh || !auth) return { sub: null, reason: '订阅缺少加密公钥（p256dh / auth）' };
+  return { sub: { endpoint: sub.endpoint, p256dh, auth } };
 }
 
 function buildHeaders(cfg: ProactivePushConfig): HeadersInit {
@@ -183,7 +217,7 @@ export async function registerScheduleOnWorker(charId: string, intervalMs: numbe
   const cfg = loadPushConfig();
   if (!isPushConfigReady(cfg)) return false;
 
-  const sub = await getOrCreateSubscription(cfg.vapidPublicKey);
+  const { sub } = await getOrCreateSubscription(cfg.vapidPublicKey);
   if (!sub) return false;
 
   try {
@@ -329,8 +363,8 @@ export async function ensureSubscribed(): Promise<SubscribeResult> {
     return { ok: false, reason: '通知权限已被拒绝（请到浏览器站点设置里手动开启）' };
   }
 
-  const sub = await getOrCreateSubscription(cfg.vapidPublicKey);
-  if (!sub) return { ok: false, reason: '订阅创建失败（可能 SW 未注册或浏览器拦截）' };
+  const { sub, reason: subReason } = await getOrCreateSubscription(cfg.vapidPublicKey);
+  if (!sub) return { ok: false, reason: subReason || '订阅创建失败（未知原因）' };
 
   // Register a sentinel row so /test can find the endpoint by URL.  We use a
   // very large intervalMs so the cron sweep never picks it up — this row is
