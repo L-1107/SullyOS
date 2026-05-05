@@ -6,7 +6,7 @@ import { ProactiveChat } from '../utils/proactiveChat';
 import { ChatPrompts } from '../utils/chatPrompts';
 import { ChatParser } from '../utils/chatParser';
 import { safeFetchJson } from '../utils/safeApi';
-import { normalizeCharacterImpression } from '../utils/impression';
+import { normalizeCharacterImpression, normalizeCharacterDefaults } from '../utils/impression';
 import { injectMemoryPalace } from '../utils/memoryPalace/pipeline';
 import { isScheduleFeatureOn } from '../utils/scheduleGenerator';
 import { evaluateEmotionBackground } from '../hooks/useChatAI';
@@ -923,7 +923,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
             }
         }
 
-        finalChars = finalChars.map(normalizeCharacterImpression);
+        finalChars = finalChars.map(c => normalizeCharacterDefaults(normalizeCharacterImpression(c)));
 
         if (finalChars.length > 0) {
           setCharacters(finalChars);
@@ -2716,7 +2716,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               setAppearancePresets(loadedPresets);
           }
 
-          if (chars.length > 0) setCharacters(chars.map(normalizeCharacterImpression));
+          if (chars.length > 0) setCharacters(chars.map(c => normalizeCharacterDefaults(normalizeCharacterImpression(c))));
           if (groupsList.length > 0) setGroups(groupsList);
           if (themes.length > 0) setCustomThemes(themes);
           if (user) setUserProfile(user);
