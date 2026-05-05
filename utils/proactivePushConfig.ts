@@ -490,6 +490,8 @@ export interface PushDiagnostics {
   lastWakeChar: string | null;
   /** True if we are inside an iOS Safari that is NOT a standalone PWA */
   iosNeedsPwa: boolean;
+  /** True if we are running inside a Capacitor native app (Android/iOS WebView) */
+  capacitorNative: boolean;
 }
 
 function detectChannelFromEndpoint(endpoint: string | null): string {
@@ -499,6 +501,23 @@ function detectChannelFromEndpoint(endpoint: string | null): string {
   if (/notify\.windows\.com|wns2/i.test(endpoint)) return 'Windows WNS (Edge)';
   if (/web\.push\.apple\.com/i.test(endpoint)) return 'Apple APNs (Safari / iOS PWA)';
   return '未识别厂商';
+}
+
+/**
+ * True when the page is running inside a Capacitor native shell
+ * (Android/iOS WebView), as opposed to a regular browser tab.  We probe
+ * the global rather than importing `@capacitor/core` so this util stays
+ * tree-shakable in the SW bundle.
+ */
+function detectCapacitorNative(): boolean {
+  if (typeof window === 'undefined') return false;
+  const cap = (window as any).Capacitor;
+  if (!cap) return false;
+  if (typeof cap.isNativePlatform === 'function') {
+    try { return !!cap.isNativePlatform(); } catch { /* ignore */ }
+  }
+  // Fallback for older Capacitor versions
+  return cap.platform === 'android' || cap.platform === 'ios';
 }
 
 function detectIosNeedsPwa(): boolean {
@@ -560,6 +579,7 @@ export async function getPushDiagnostics(): Promise<PushDiagnostics> {
     lastWakeAt,
     lastWakeChar,
     iosNeedsPwa: detectIosNeedsPwa(),
+    capacitorNative: detectCapacitorNative(),
   };
 }
 
