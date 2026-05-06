@@ -1662,12 +1662,11 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
   const savePresets = (presets: ApiPreset[]) => { setApiPresets(presets); localStorage.setItem('os_api_presets', JSON.stringify(presets)); };
   const addCharacter = async () => {
     const name = 'New Character';
-    // 默认开启 emotionConfig.enabled 与 memoryPalaceEnabled，让新角色与老角色行为对齐：
-    // - 情绪标签由 (isScheduleFeatureOn && emotionConfig.enabled) 双闸门控制；schedule
-    //   未开时不会触发副 API，所以这里默认 true 是安全的，仅是把"用户开日程后情绪自然
-    //   跟着启用"这条隐含约定显式落到默认值上。
-    // - memoryPalaceEnabled 真正的 gate 还要全局 embedding/lightLLM 配好，没配的话
-    //   pipeline 会自然 skip；老用户 (历史角色) 已有此字段，新角色补齐即可。
+    // 默认开启 emotionConfig.enabled，让"开日程 = 开情绪"这条隐含约定对新角色也成立。
+    // 真正的闸门是 (isScheduleFeatureOn && emotionConfig.enabled)，schedule 没开
+    // 时副 API 不会触发，所以这里默认 true 安全。
+    // 注意：memoryPalaceEnabled 不在这里默认开 —— 那是用户在记忆宫殿 App 显式 opt-in
+    // 的功能，自动开会替用户决策。
     const newChar: CharacterProfile = {
       id: `char-${Date.now()}`,
       name,
@@ -1677,7 +1676,6 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       memories: [],
       contextLimit: 500,
       emotionConfig: { enabled: true },
-      memoryPalaceEnabled: true,
     };
     setCharacters(prev => [...prev, newChar]);
     setActiveCharacterId(newChar.id);

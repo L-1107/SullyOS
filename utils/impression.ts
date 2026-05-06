@@ -99,19 +99,12 @@ export const normalizeCharacterImpression = (char: CharacterProfile): CharacterP
 };
 
 /**
- * 历史脏数据兜底：早期 addCharacter 没初始化情绪 / 记忆宫殿开关，导致一批"新角色"
- * 字段为 undefined，副 API 闸门 (useChatAI:761 / :2604) 永远过不去。
- * 此处只把 undefined 补成默认 true —— 用户显式关掉 (false) 的不动。
- * 在加载阶段调用即可，updateCharacter 自然会在下次保存时把补好的字段持久化。
+ * 历史脏数据兜底：早期 addCharacter 没初始化 emotionConfig，导致一批"新角色"该字段
+ * 为 undefined，情绪闸门 (useChatAI:761) 永远过不去。
+ * 此处只把 undefined 补成默认 enabled，用户显式关掉 (false) 的不动。
+ * memoryPalaceEnabled 是用户显式 opt-in 的功能，不在这里替用户开。
  */
 export const normalizeCharacterDefaults = (char: CharacterProfile): CharacterProfile => {
-    const patch: Partial<CharacterProfile> = {};
-    if (char.emotionConfig === undefined) {
-        patch.emotionConfig = { enabled: true };
-    }
-    if (char.memoryPalaceEnabled === undefined) {
-        patch.memoryPalaceEnabled = true;
-    }
-    if (Object.keys(patch).length === 0) return char;
-    return { ...char, ...patch };
+    if (char.emotionConfig !== undefined) return char;
+    return { ...char, emotionConfig: { enabled: true } };
 };
