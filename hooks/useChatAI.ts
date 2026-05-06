@@ -2418,14 +2418,11 @@ export const useChatAI = ({
                     }
                 }
             }
-            // Clean all quote tag variants from content
-            aiContent = aiContent.replace(QUOTE_CLEAN_DOUBLE, '').replace(QUOTE_CLEAN_SINGLE, '').replace(REPLY_CLEAN_CN, '').trim();
-
             // 8. Split and Stream (Simulate Typing)
             // Note: SEND_EMOJI tags are preserved through sanitize so splitResponse can interleave them with text
-
-            // Comprehensive AI output sanitization (strips name prefixes, headers, stray backticks, residual tags, etc.)
-            aiContent = ChatParser.sanitize(aiContent);
+            // Citation tags are preserved here so each chunk can detect its own reply target;
+            // they are stripped per-chunk below (and again via per-chunk sanitize for visible text).
+            aiContent = ChatParser.sanitize(aiContent, { keepCitations: true });
 
             // 意识流（innerState）现由副 API 的情绪评估管线产出并 setEvolvedNarrative；
             // 仍然兜底清理一次，防止老 prompt 缓存或模型残留标签泄漏到用户可见内容。
@@ -2548,7 +2545,7 @@ export const useChatAI = ({
                                 await new Promise(r => setTimeout(r, delay));
 
                                 let chunkReplyTarget: { id: number, content: string, name: string } | undefined;
-                                const chunkQuoteMatch = chunk.match(QUOTE_RE_DOUBLE) || chunk.match(QUOTE_RE_SINGLE);
+                                const chunkQuoteMatch = chunk.match(QUOTE_RE_DOUBLE) || chunk.match(QUOTE_RE_SINGLE) || chunk.match(REPLY_RE_CN);
                                 if (chunkQuoteMatch) {
                                     const quotedText = chunkQuoteMatch[1].trim();
                                     if (quotedText) {
@@ -2559,10 +2556,12 @@ export const useChatAI = ({
                                             chunkReplyTarget = { id: targetMsg.id, content: truncated, name: userProfile.name };
                                         }
                                     }
-                                    chunk = chunk.replace(QUOTE_CLEAN_DOUBLE, '').replace(QUOTE_CLEAN_SINGLE, '').trim();
+                                    chunk = chunk.replace(QUOTE_CLEAN_DOUBLE, '').replace(QUOTE_CLEAN_SINGLE, '').replace(REPLY_CLEAN_CN, '').trim();
                                 }
 
-                                const replyData = chunkReplyTarget || (globalMsgIndex === 0 ? aiReplyTarget : undefined);
+                                // Per-chunk citation detection above handles every quote tag in the message,
+                                // so each bubble gets the citation that was actually inline in its own chunk.
+                                const replyData = chunkReplyTarget;
 
                                 if (ChatParser.hasDisplayContent(chunk)) {
                                     const cleanChunk = ChatParser.sanitize(chunk);
