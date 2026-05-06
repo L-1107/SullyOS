@@ -479,10 +479,12 @@ export const SubActions: React.FC<{
   liked?: boolean;
   onSync?: () => void;             // 手动对轴 (仅本地歌显示)
   showSync?: boolean;
+  onDownload?: () => void;         // 下载本地生成的音频 (仅本地歌显示)
+  showDownload?: boolean;
   playMode?: SubPlayMode;
   onCyclePlayMode?: () => void;    // 循环模式切换
   onAdd?: () => void;
-}> = ({ onLike, liked, onSync, showSync, playMode = 'loop', onCyclePlayMode, onAdd }) => {
+}> = ({ onLike, liked, onSync, showSync, onDownload, showDownload, playMode = 'loop', onCyclePlayMode, onAdd }) => {
   const Item = ({ icon, label, onClick, active }: { icon: React.ReactNode; label: string; onClick?: () => void; active?: boolean }) => (
     <button onClick={onClick}
       className="flex flex-col items-center gap-1 transition-opacity active:scale-95"
@@ -533,6 +535,13 @@ export const SubActions: React.FC<{
       <path d="M3 6h13M3 12h13M3 18h9M17 15v6M14 18h6" />
     </svg>
   );
+  const downloadSvg = (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.primary} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 4v12" />
+      <path d="M7 11l5 5 5-5" />
+      <path d="M5 20h14" />
+    </svg>
+  );
 
   const playModeLabel: Record<SubPlayMode, string> = { loop: 'Loop', single: 'One', shuffle: 'Mix' };
 
@@ -540,6 +549,7 @@ export const SubActions: React.FC<{
     <div className="flex items-end justify-around gap-4 max-w-[280px] mx-auto">
       <Item onClick={onLike} active={liked} label="Like" icon={heartSvg} />
       {showSync && onSync && <Item onClick={onSync} active label="Sync" icon={syncSvg} />}
+      {showDownload && onDownload && <Item onClick={onDownload} active label="Save" icon={downloadSvg} />}
       {onCyclePlayMode && <Item onClick={onCyclePlayMode} active={playMode !== 'loop'} label={playModeLabel[playMode]} icon={loopSvg} />}
       {onAdd && <Item onClick={onAdd} label="Add" icon={addSvg} />}
     </div>

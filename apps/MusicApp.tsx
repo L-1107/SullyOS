@@ -2,6 +2,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useOS } from '../context/OSContext';
 import { useMusic, musicApi, normalizeCookie, toHttps, Song } from '../context/MusicContext';
+import { DB } from '../utils/db';
 import { Gear, User as UserIcon, Crosshair, Play as PlayIcon, Pause as PauseIcon } from '@phosphor-icons/react';
 import {
   C, Sparkle, CrossStar, MizuHeader, SearchBar, SongRow, MiniPlayer,
@@ -37,6 +38,32 @@ const MusicApp: React.FC = () => {
   } = useMusic();
   const isCurrentRegenerating = !!current && current.id === regeneratingId;
   // 把对轴入口和单曲循环按钮移到 SubActions 里，避免散乱
+  // 下载本地生成的歌曲到本地文件系统
+  const downloadCurrentLocal = useCallback(async () => {
+    if (!current?.local || !current.localAssetKey) return;
+    try {
+      const entry = await DB.getAssetRaw(current.localAssetKey).catch(() => null) as
+        | { blob?: Blob; mimeType?: string }
+        | Blob
+        | null;
+      const blob: Blob | null = entry instanceof Blob
+        ? entry
+        : (entry?.blob instanceof Blob ? entry.blob : null);
+      if (!blob) { addToast('音频文件丢失', 'error'); return; }
+      const mime = current.localMimeType || (entry && !(entry instanceof Blob) ? entry.mimeType : '') || blob.type || 'audio/mpeg';
+      const ext = /wav/i.test(mime) ? 'wav' : /ogg/i.test(mime) ? 'ogg' : /flac/i.test(mime) ? 'flac' : /m4a|aac|mp4/i.test(mime) ? 'm4a' : 'mp3';
+      const safe = (current.name || 'song').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `${safe}.${ext}`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      addToast('已下载', 'success');
+    } catch {
+      addToast('下载失败', 'error');
+    }
+  }, [current, addToast]);
+
   const cyclePlayMode = useCallback(() => {
     const order: ('loop' | 'single' | 'shuffle')[] = ['loop', 'single', 'shuffle'];
     const next = order[(order.indexOf(playMode) + 1) % order.length];
@@ -404,6 +431,8 @@ const MusicApp: React.FC = () => {
                 setSyncDraft(lyric.map(l => l.t));
                 setShowLyricSync(true);
               }}
+              showDownload={!!(current.local && current.localAssetKey)}
+              onDownload={downloadCurrentLocal}
               playMode={playMode}
               onCyclePlayMode={cyclePlayMode}
             />
