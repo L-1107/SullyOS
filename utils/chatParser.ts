@@ -201,9 +201,11 @@ export const ChatParser = {
      * Comprehensive sanitizer for AI output before saving to DB.
      * Removes AI-specific artifacts that should never appear in chat bubbles.
      * Safe to call multiple times (idempotent). Preserves %%BILINGUAL%% markers.
+     * Pass { keepCitations: true } to preserve [QUOTE:..]/[引用:..]/[回复 ".."] tags
+     * (used when downstream chunking needs to detect per-bubble citation targets).
      */
-    sanitize: (text: string): string => {
-        return text
+    sanitize: (text: string, options?: { keepCitations?: boolean }): string => {
+        let result = text
             // Convert literal \n (backslash + n) the AI sometimes outputs into real newlines
             .replace(/\\n/g, '\n')
             // Strip source tags [聊天]/[通话]/[约会] leaked from history context → newline to preserve splits
@@ -221,11 +223,15 @@ export const ChatParser = {
             .replace(/^#{1,6}\s+/gm, '')
             // Strip residual action/system tags that weren't caught earlier
             .replace(/\[\[(?:ACTION|RECALL|SEARCH|DIARY|READ_DIARY|FS_DIARY|FS_READ_DIARY|DIARY_START|DIARY_END|FS_DIARY_START|FS_DIARY_END|MUSIC_ACTION)[:\s][\s\S]*?\]\]/g, '')
-            .replace(/\[schedule_message[^\]]*\]/g, '')
-            .replace(/\[\[(?:QU[OA]TE|引用)[：:][\s\S]*?\]\]/g, '')
-            .replace(/\[(?:QU[OA]TE|引用)[：:][^\]]*\]/g, '')
-            // [回复 "content"]: format (AI mimics history context format)
-            .replace(/\[回复\s*[""\u201C][^""\u201D]*?[""\u201D](?:\.{0,3})\]\s*[：:]?\s*/g, '')
+            .replace(/\[schedule_message[^\]]*\]/g, '');
+        if (!options?.keepCitations) {
+            result = result
+                .replace(/\[\[(?:QU[OA]TE|引用)[：:][\s\S]*?\]\]/g, '')
+                .replace(/\[(?:QU[OA]TE|引用)[：:][^\]]*\]/g, '')
+                // [回复 "content"]: format (AI mimics history context format)
+                .replace(/\[回复\s*[""\u201C][^""\u201D]*?[""\u201D](?:\.{0,3})\]\s*[：:]?\s*/g, '');
+        }
+        return result
             // Strip backtick-wrapped action tags and empty backtick pairs
             .replace(/`(\[\[[\s\S]*?\]\])`/g, '$1')
             .replace(/``+/g, '')
