@@ -640,6 +640,7 @@ const CallApp: React.FC = () => {
         content: `通话结束 · ${selectedChar.name}｜${formatDuration(elapsedSeconds)}｜${Math.max(1, userTurns)}轮对话`,
         metadata: { source: 'call-end-popup', callSessionId: currentSessionId, ...payload },
       });
+      await loadCallRecords(selectedChar.id);
     }
     clearSuspendedCall();
     resetCurrentCall();
