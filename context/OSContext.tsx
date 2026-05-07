@@ -215,6 +215,9 @@ interface OSContextType {
   customIcons: Record<string, string>;
   setCustomIcon: (appId: string, iconUrl: string | undefined) => void;
 
+  // Appearance Reset
+  resetAppearance: () => Promise<void>;
+
   // Global Message Signal
   lastMsgTimestamp: number; // New: Signal for Chat to refresh
   unreadMessages: Record<string, number>; // New: Track unread counts per character
@@ -1913,6 +1916,48 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       addToast('预设已删除', 'info');
   };
 
+  // 一键还原外观：把主题、图标、壁纸、小组件、装饰、字体全部回到出厂状态。
+  // 用户在不同版本/不同备份之间反复导入时，customIcons 与 IndexedDB 里的 widget_/deco_/icon_
+  // 残留经常导致图标错乱，这里直接整体清空再写回 default。
+  // 已保存的外观预设不动，用户随时还能切回去。
+  const resetAppearance = async () => {
+      try {
+          setTheme(defaultTheme);
+          applyCustomFont(undefined);
+
+          const iconAppIds = Object.keys(customIcons);
+          setCustomIcons({});
+          for (const appId of iconAppIds) {
+              await DB.deleteAsset(`icon_${appId}`);
+          }
+
+          const allAssets = await DB.getAllAssets();
+          for (const asset of allAssets) {
+              const id = asset.id;
+              if (
+                  id === 'wallpaper' ||
+                  id === 'launcherWidgetImage' ||
+                  id === 'custom_font_data' ||
+                  id.startsWith('widget_') ||
+                  id.startsWith('deco_') ||
+                  id.startsWith('icon_')
+              ) {
+                  await DB.deleteAsset(id);
+              }
+          }
+
+          try {
+              localStorage.setItem('os_theme', JSON.stringify(defaultTheme));
+          } catch (e) {
+              console.warn('[resetAppearance] localStorage 写入失败', e);
+          }
+
+          addToast('外观已还原为初始状态', 'success');
+      } catch (e: any) {
+          addToast(e?.message || '还原失败', 'error');
+      }
+  };
+
   const renameAppearancePreset = async (id: string, name: string) => {
       setAppearancePresets(prev => prev.map(p => {
           if (p.id !== id) return p;
@@ -2832,6 +2877,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
     addToast,
     customIcons,
     setCustomIcon,
+    resetAppearance,
     lastMsgTimestamp,
     unreadMessages,
     clearUnread,
