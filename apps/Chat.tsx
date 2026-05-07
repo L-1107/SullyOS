@@ -695,6 +695,19 @@ const Chat: React.FC = () => {
         const text = customContent || input.trim();
         const type = customType || 'text';
 
+        // 用户手打"麦请求"三个字 → 等价于点击麦克风按钮 (拉起麦当劳菜单)
+        // 不落库, 跟按钮点击行为完全一致, 避免出现"banner 在但菜单没拉起"的诡异状态
+        if (!customContent && type === 'text' && text === MCD_ACTIVATE_TRIGGER) {
+            setInput(''); localStorage.removeItem(draftKey);
+            if (!isMcdConfigured()) {
+                addToast('请先到设置 → 麦当劳 启用并填入 MCP Token', 'info');
+                return;
+            }
+            setMcdAppOpen(true);
+            setShowPanel('none');
+            return;
+        }
+
         if (!customContent) { setInput(''); localStorage.removeItem(draftKey); }
         
         if (type === 'image') {
