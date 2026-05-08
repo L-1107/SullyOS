@@ -1494,7 +1494,9 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
     }
 
     // Logic for Font: Differentiate between Data URI (Blob) and URL (Web Font)
-    if (customFont !== undefined) {
+    // Use `in` check so an explicit `customFont: undefined` (user-initiated reset)
+    // still triggers the reset branch — `customFont !== undefined` would skip it.
+    if ('customFont' in updates) {
         if (customFont && customFont.startsWith('data:')) {
             // Blob: Save to DB, Apply
             await DB.saveAsset('custom_font_data', customFont);

@@ -1,5 +1,5 @@
 
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { useOS, DEFAULT_WALLPAPER } from '../context/OSContext';
 import { OSTheme, DesktopDecoration, AppearancePreset, Toast } from '../types';
 import { INSTALLED_APPS, Icons } from '../constants';
@@ -9,6 +9,67 @@ import { ChatAppearanceEditor as ModularChatAppearanceEditor } from '../componen
 import { Capacitor } from '@capacitor/core';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
+
+// Touch-friendly long-press wrapper. `onContextMenu` alone misses iOS Safari /
+// Capacitor WebView, so we also wire pointer/touch timers to fire after ~550ms.
+// When a long-press fires, the subsequent click is suppressed.
+const LongPressArea: React.FC<{
+    onLongPress: () => void;
+    onClick?: () => void;
+    delay?: number;
+    className?: string;
+    style?: React.CSSProperties;
+    children?: React.ReactNode;
+}> = ({ onLongPress, onClick, delay = 550, className, style, children }) => {
+    const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const fired = useRef(false);
+    const startPos = useRef<{ x: number; y: number } | null>(null);
+
+    const clear = useCallback(() => {
+        if (timer.current) { clearTimeout(timer.current); timer.current = null; }
+        startPos.current = null;
+    }, []);
+
+    useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+
+    const start = (x: number, y: number) => {
+        fired.current = false;
+        startPos.current = { x, y };
+        if (timer.current) clearTimeout(timer.current);
+        timer.current = setTimeout(() => {
+            fired.current = true;
+            onLongPress();
+        }, delay);
+    };
+    const move = (x: number, y: number) => {
+        const sp = startPos.current;
+        if (!sp) return;
+        if (Math.hypot(x - sp.x, y - sp.y) > 8) clear();
+    };
+
+    return (
+        <div
+            className={className}
+            style={style}
+            onContextMenu={(e) => { e.preventDefault(); onLongPress(); }}
+            onTouchStart={(e) => { const t = e.touches[0]; if (t) start(t.clientX, t.clientY); }}
+            onTouchMove={(e) => { const t = e.touches[0]; if (t) move(t.clientX, t.clientY); }}
+            onTouchEnd={clear}
+            onTouchCancel={clear}
+            onPointerDown={(e) => { if (e.pointerType !== 'touch') start(e.clientX, e.clientY); }}
+            onPointerMove={(e) => { if (e.pointerType !== 'touch') move(e.clientX, e.clientY); }}
+            onPointerUp={clear}
+            onPointerLeave={clear}
+            onPointerCancel={clear}
+            onClick={() => {
+                if (fired.current) { fired.current = false; return; }
+                onClick?.();
+            }}
+        >
+            {children}
+        </div>
+    );
+};
 
 const TwemojiImg: React.FC<{ code: string; alt?: string; className?: string }> = ({ code, alt, className = 'w-4 h-4 inline-block' }) => (
   <img src={`https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/${code}.png`} alt={alt || ''} className={className} draggable={false} />
@@ -850,11 +911,10 @@ const Appearance: React.FC = () => {
                 {/* Wallpaper Section */}
                 <section className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100">
                     <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4">Wallpaper</h2>
-                    <div
+                    <LongPressArea
                         className="aspect-[9/16] w-1/2 mx-auto bg-slate-100 rounded-2xl overflow-hidden relative shadow-inner mb-4 group cursor-pointer"
                         onClick={() => wallpaperInputRef.current?.click()}
-                        onContextMenu={(e) => {
-                            e.preventDefault();
+                        onLongPress={() => {
                             if (theme.wallpaper === DEFAULT_WALLPAPER) {
                                 addToast('当前已是默认壁纸', 'info');
                                 return;
@@ -876,7 +936,7 @@ const Appearance: React.FC = () => {
                          <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                              <span className="text-white text-xs font-bold bg-black/20 px-3 py-1 rounded-full backdrop-blur-md">更换壁纸</span>
                          </div>
-                    </div>
+                    </LongPressArea>
                     <input type="file" ref={wallpaperInputRef} className="hidden" accept="image/*" onChange={(e) => e.target.files?.[0] && handleWallpaperUpload(e.target.files[0])} />
                     <p className="text-center text-[10px] text-slate-400 mb-4">点击上传 / 长按恢复默认壁纸 (支持原画质)</p>
 
@@ -909,9 +969,16 @@ const Appearance: React.FC = () => {
                             const slot = 'dsq';
                             const img = (theme.launcherWidgets || {})[slot];
                             return (
-                                <div className={`w-40 aspect-square rounded-2xl overflow-hidden relative cursor-pointer transition-transform active:scale-95 ${img ? 'shadow-sm' : 'border-2 border-dashed border-slate-200 bg-white flex items-center justify-center'}`}
+                                <LongPressArea
+                                    className={`w-40 aspect-square rounded-2xl overflow-hidden relative cursor-pointer transition-transform active:scale-95 ${img ? 'shadow-sm' : 'border-2 border-dashed border-slate-200 bg-white flex items-center justify-center'}`}
                                     onClick={() => { setActiveWidgetSlot(slot); widgetInputRef.current?.click(); }}
-                                    onContextMenu={(e) => { e.preventDefault(); if (img) removeWidget(slot); }}>
+                                    onLongPress={() => {
+                                        if (img) {
+                                            removeWidget(slot);
+                                            addToast('已移除方图', 'success');
+                                        }
+                                    }}
+                                >
                                     {img ? (
                                         <>
                                             <img src={img} className="w-full h-full object-cover" />
@@ -925,7 +992,7 @@ const Appearance: React.FC = () => {
                                             <span className="text-[10px]">方图</span>
                                         </div>
                                     )}
-                                </div>
+                                </LongPressArea>
                             );
                         })()}
                     </div>
@@ -941,9 +1008,17 @@ const Appearance: React.FC = () => {
                             {['tl', 'tr'].map(slot => {
                                 const img = (theme.launcherWidgets || {})[slot];
                                 return (
-                                    <div key={slot} className={`flex-1 aspect-square rounded-xl overflow-hidden relative cursor-pointer transition-transform active:scale-95 ${img ? 'shadow-sm' : 'border-2 border-dashed border-slate-200 bg-white flex items-center justify-center'}`}
+                                    <LongPressArea
+                                        key={slot}
+                                        className={`flex-1 aspect-square rounded-xl overflow-hidden relative cursor-pointer transition-transform active:scale-95 ${img ? 'shadow-sm' : 'border-2 border-dashed border-slate-200 bg-white flex items-center justify-center'}`}
                                         onClick={() => { setActiveWidgetSlot(slot); widgetInputRef.current?.click(); }}
-                                        onContextMenu={(e) => { e.preventDefault(); if (img) removeWidget(slot); }}>
+                                        onLongPress={() => {
+                                            if (img) {
+                                                removeWidget(slot);
+                                                addToast('已移除小组件', 'success');
+                                            }
+                                        }}
+                                    >
                                         {img ? (
                                             <>
                                                 <img src={img} className="w-full h-full object-cover" />
@@ -957,7 +1032,7 @@ const Appearance: React.FC = () => {
                                                 <span className="text-[9px]">图片</span>
                                             </div>
                                         )}
-                                    </div>
+                                    </LongPressArea>
                                 );
                             })}
                         </div>
@@ -965,9 +1040,16 @@ const Appearance: React.FC = () => {
                             const slot = 'wide';
                             const img = (theme.launcherWidgets || {})[slot];
                             return (
-                                <div className={`w-full h-20 rounded-xl overflow-hidden relative cursor-pointer transition-transform active:scale-[0.98] ${img ? 'shadow-sm' : 'border-2 border-dashed border-slate-200 bg-white flex items-center justify-center'}`}
+                                <LongPressArea
+                                    className={`w-full h-20 rounded-xl overflow-hidden relative cursor-pointer transition-transform active:scale-[0.98] ${img ? 'shadow-sm' : 'border-2 border-dashed border-slate-200 bg-white flex items-center justify-center'}`}
                                     onClick={() => { setActiveWidgetSlot(slot); widgetInputRef.current?.click(); }}
-                                    onContextMenu={(e) => { e.preventDefault(); if (img) removeWidget(slot); }}>
+                                    onLongPress={() => {
+                                        if (img) {
+                                            removeWidget(slot);
+                                            addToast('已移除横幅', 'success');
+                                        }
+                                    }}
+                                >
                                     {img ? (
                                         <>
                                             <img src={img} className="w-full h-full object-cover" />
@@ -981,7 +1063,7 @@ const Appearance: React.FC = () => {
                                             <span className="text-[9px]">横幅</span>
                                         </div>
                                     )}
-                                </div>
+                                </LongPressArea>
                             );
                         })()}
                     </div>
