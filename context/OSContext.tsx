@@ -1316,14 +1316,11 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               const fullMessages = [{ role: 'system', content: systemPrompt }, ...apiMessages];
 
               // 3c. 情绪评估 fire-and-forget — 与主 API 并行，沿用 useChatAI 的 API 选择逻辑：
-              //     角色专属情绪 API > 全局 lightLLM > 主 apiConfig
+              //     角色专属情绪 API > 主 apiConfig（与记忆宫殿副 API 完全独立）
               if (isScheduleFeatureOn(char) && char.emotionConfig?.enabled) {
-                  const lightLLM = memoryPalaceConfigRef.current?.lightLLM;
                   const emotionApi = (char.emotionConfig.api?.baseUrl)
                       ? char.emotionConfig.api
-                      : (lightLLM && lightLLM.baseUrl)
-                          ? { baseUrl: lightLLM.baseUrl, apiKey: lightLLM.apiKey, model: lightLLM.model }
-                          : { baseUrl: apiConfigRef.current.baseUrl, apiKey: apiConfigRef.current.apiKey, model: apiConfigRef.current.model };
+                      : { baseUrl: apiConfigRef.current.baseUrl, apiKey: apiConfigRef.current.apiKey, model: apiConfigRef.current.model };
                   if (emotionApi.baseUrl && currentUserProfile) {
                       evaluateEmotionBackground(char, currentUserProfile, systemPrompt, apiMessages, emotionApi)
                           .then((innerState) => {
@@ -1628,8 +1625,8 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
   };
 
   // 情绪 API 同步到所有角色：API 字段（baseUrl/apiKey/model）所有角色共用，
-  // 各角色自身的 enabled 标志保持不变。同时把同一份值写到全局 lightLLM，
-  // 让记忆宫殿轻量 LLM 与情绪 API 保持一致（两者本来就指向同一个副 API 概念）。
+  // 各角色自身的 enabled 标志保持不变。
+  // 注意：与记忆宫殿副 API（memoryPalaceConfig.lightLLM）完全独立，两者各管各的。
   const syncEmotionApiToAllCharacters = (api: { baseUrl: string; apiKey: string; model: string } | undefined) => {
     setCharacters(prev => {
       const updated = prev.map(c => {
@@ -1644,15 +1641,6 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       });
       return updated;
     });
-    if (api && api.baseUrl) {
-      const newConfig: MemoryPalaceGlobalConfig = {
-        embedding: { ...memoryPalaceConfig.embedding },
-        lightLLM: { baseUrl: api.baseUrl, apiKey: api.apiKey, model: api.model },
-        rerank: { ...memoryPalaceConfig.rerank },
-      };
-      setMemoryPalaceConfig(newConfig);
-      localStorage.setItem('os_memory_palace_config', JSON.stringify(newConfig));
-    }
   };
   const updateRemoteVectorConfig = (updates: Partial<typeof defaultRemoteVectorConfig>) => {
     const newConfig = { ...remoteVectorConfig, ...updates };

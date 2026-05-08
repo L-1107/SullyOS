@@ -782,14 +782,11 @@ export const useChatAI = ({
             // 3. Fire-and-forget emotion evaluation in parallel with main API call
             //    直接复用已 build 好的 systemPrompt 和 cleanedApiMessages，确保情绪评估和主 API 看到的上下文完全一致
             //    情绪评估同时产出 innerState（意识流独白），注入下一轮 system prompt
-            //    未单独配置情绪 API 时，自动回退到主 apiConfig
+            //    未单独配置情绪 API 时，回退到主 apiConfig（与记忆宫殿副 API 完全独立）
             if (isScheduleFeatureOn(char) && char.emotionConfig?.enabled) {
-                const lightLLM = memoryPalaceConfig?.lightLLM;
                 const emotionApi = (char.emotionConfig.api?.baseUrl)
                     ? char.emotionConfig.api
-                    : (lightLLM && lightLLM.baseUrl)
-                        ? { baseUrl: lightLLM.baseUrl, apiKey: lightLLM.apiKey, model: lightLLM.model }
-                        : { baseUrl: apiConfig.baseUrl, apiKey: apiConfig.apiKey, model: apiConfig.model };
+                    : { baseUrl: apiConfig.baseUrl, apiKey: apiConfig.apiKey, model: apiConfig.model };
                 setEmotionStatus('evaluating');
                 evaluateEmotionBackground(char, userProfile, systemPrompt, cleanedApiMessages, emotionApi)
                     .then((innerState) => {
