@@ -394,7 +394,7 @@ const labelClass = "text-[10px] font-bold text-slate-400 uppercase tracking-wide
 // ─── 主组件 ───────────────────────────────────────────
 
 export default function MemoryPalaceApp() {
-    const { activeCharacterId, characters, updateCharacter, setActiveCharacterId, closeApp, apiPresets, userProfile, memoryPalaceConfig, updateMemoryPalaceConfig, syncEmotionApiToAllCharacters, remoteVectorConfig, updateRemoteVectorConfig, addToast } = useOS();
+    const { activeCharacterId, characters, updateCharacter, setActiveCharacterId, closeApp, apiPresets, userProfile, memoryPalaceConfig, updateMemoryPalaceConfig, remoteVectorConfig, updateRemoteVectorConfig, addToast } = useOS();
     const char = characters.find(c => c.id === activeCharacterId);
 
     const [view, setView] = useState<'picker' | 'palace' | 'room' | 'memory' | 'settings' | 'globalSettings' | 'all' | 'boxes'>('picker');
@@ -901,9 +901,8 @@ export default function MemoryPalaceApp() {
             apiKey: lightKey.trim(),
             model: lightModel.trim(),
         };
-        // 一次性写到全局 lightLLM + 所有角色的 emotionConfig.api
-        // （各角色 enabled 标志保持不变；记忆宫殿轻量 LLM 与情绪 API 共用一份配置）
-        syncEmotionApiToAllCharacters(api);
+        // 只写全局 lightLLM；与情绪 API（emotionConfig.api）完全独立，互不影响。
+        updateMemoryPalaceConfig({ lightLLM: api });
         setLightSaved(true);
         setTimeout(() => setLightSaved(false), 2000);
     };

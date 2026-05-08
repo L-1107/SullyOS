@@ -12,7 +12,8 @@
  * - 保留缓冲区尾部 15% 作为下次提取的上下文衔接
  *
  * LLM 调用策略：
- * - 记忆提取 → 用 LightLLMConfig（复用 emotionConfig.api 轻量副模型）
+ * - 记忆提取 → 用 LightLLMConfig（来自 memoryPalaceConfig.lightLLM 全局副 API，
+ *   与情绪 API emotionConfig.api 完全独立）
  * - 检索管线 → 纯计算，不调 LLM
  */
 
@@ -75,7 +76,7 @@ import { isMessageSemanticallyRelevant, formatMessageForPrompt } from '../messag
 
 /**
  * 轻量 LLM 配置，用于记忆提取等后台任务。
- * 复用 emotionConfig.api 的 { baseUrl, apiKey, model }。
+ * 来源是 memoryPalaceConfig.lightLLM（全局副 API），与情绪 API（emotionConfig.api）独立。
  * 这样可以用便宜快速的小模型（如 DeepSeek-V2-Lite、GLM-4-Flash）
  * 而不是主聊天模型。
  */

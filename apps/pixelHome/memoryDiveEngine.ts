@@ -901,7 +901,7 @@ interface EmitDiveEmotionParams {
   diveBuffs: DiveBuffValues;
   /** 走过的房间，按顺序 */
   visitedRooms: MemoryRoom[];
-  /** 二级 API（复用 emotionConfig.api；会由外层传入，保证和 chat app 完全一致） */
+  /** 情绪 API（来自 emotionConfig.api，未配置时由调用方回退到主 apiConfig） */
   api: APIConfig;
 }
 
