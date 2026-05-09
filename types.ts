@@ -999,6 +999,33 @@ export interface CharacterProfile {
    */
   htmlModeEnabled?: boolean;
   htmlModeCustomPrompt?: string;
+
+  /**
+   * 思考过程展示（per-character / 会话级）。
+   * - true：把 LLM 返回的 reasoning_content 与 <think>...</think> 抽出来，
+   *   作为 metadata.thinkingChain 落库到 assistant 消息上，
+   *   MessageItem 在气泡顶部渲染可折叠"💭 思考过程"区块。
+   * - false / undefined：依然按旧逻辑剥离，不展示。
+   * - 仅影响开关切到 true 之后产生的新消息；旧消息没有 thinkingChain，
+   *   UI 自然不会显示，符合"打开后才看"的预期。
+   */
+  showThinkingChain?: boolean;
+  /**
+   * 思考链卡片视觉风格（per-character）。
+   * - 'echo' (default)：暗紫底 + 暖金描边「回响」二次元卡牌
+   * - 'whisper'：米色羊皮纸「心声」轻盈版
+   * - 'minimal'：无装饰单色简洁版
+   * - 'custom'：使用 thinkingChainCustomColors 给的配色
+   */
+  thinkingChainStyle?: 'echo' | 'whisper' | 'minimal' | 'custom';
+  /** 自定义风格用的配色组（仅 thinkingChainStyle === 'custom' 生效） */
+  thinkingChainCustomColors?: {
+    bg?: string;       // 卡片背景
+    accent?: string;   // 边框/标题点缀
+    text?: string;     // 正文颜色
+  };
+  /** 用户追加的思考提示词（不替换原生，只在最后追加一段「用户额外要求」） */
+  thinkingChainCustomPrompt?: string;
 }
 
 export interface GroupProfile {

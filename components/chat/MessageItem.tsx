@@ -6,6 +6,242 @@ import { Message, ChatTheme } from '../../types';
 import { tryParseLifeSimResetCard } from '../../utils/lifeSimChatCard';
 import McdCard from './McdCard';
 
+// 思考链卡片支持的 4 种风格预设 — 同时被 MessageItem 与 ThinkingChainSettingsModal 复用
+export type ThinkingChainStyleId = 'echo' | 'whisper' | 'minimal' | 'custom';
+export interface ThinkingChainStyleSpec {
+    bg: string;            // 卡片背景（可以是 CSS gradient）
+    border: string;        // 边框色
+    accent: string;        // 标题/装饰点缀
+    text: string;          // 正文颜色
+    subtext: string;       // 副标题/状态文字
+    glow?: string;         // 右上角微光 radial 颜色（可选）
+    fadeColor?: string;    // 展开滚动区上下软渐变颜色（可选）
+    fontFamily: string;    // 正文字体
+    showCorners: boolean;  // 四角装饰括号
+    showDivider: boolean;  // 标题下分隔线
+    titleZh: string;       // 中文标题
+    titleEn: string;       // 英文副标题
+    listenLabel: string;   // 折叠态右侧文字
+    silenceLabel: string;  // 展开态右侧文字
+    quoteLeft: string;     // 折叠态首句左引号
+    quoteRight: string;    // 折叠态首句右引号
+    italic: boolean;       // 是否斜体
+    radius: string;        // 圆角
+}
+
+const SERIF = '"Noto Serif SC", "Source Han Serif SC", "Songti SC", "STKaiti", "KaiTi", serif';
+const SANS = '"PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif';
+
+export const THINKING_CHAIN_PRESETS: Record<Exclude<ThinkingChainStyleId, 'custom'>, ThinkingChainStyleSpec> = {
+    echo: {
+        bg: 'linear-gradient(135deg, #2a1f3d 0%, #1d1530 45%, #2a1834 100%)',
+        border: 'rgba(201, 169, 106, 0.35)',
+        accent: '#c9a96a',
+        text: '#e9d9b8',
+        subtext: 'rgba(233, 217, 184, 0.62)',
+        glow: 'rgba(201, 169, 106, 0.28)',
+        fadeColor: '#1d1530',
+        fontFamily: SERIF,
+        showCorners: true,
+        showDivider: true,
+        titleZh: '心象',
+        titleEn: 'PSYCHE',
+        listenLabel: '凝望',
+        silenceLabel: '移开视线',
+        quoteLeft: '「',
+        quoteRight: '」',
+        italic: true,
+        radius: '4px',
+    },
+    whisper: {
+        bg: 'linear-gradient(135deg, rgba(251, 247, 242, 0.96) 0%, rgba(245, 238, 247, 0.86) 50%, rgba(248, 240, 240, 0.92) 100%)',
+        border: 'rgba(216, 196, 200, 0.55)',
+        accent: '#9a7d83',
+        text: '#5b4b50',
+        subtext: 'rgba(154, 125, 131, 0.7)',
+        glow: 'rgba(212, 184, 192, 0.35)',
+        fadeColor: '#fbf7f2',
+        fontFamily: SERIF,
+        showCorners: false,
+        showDivider: true,
+        titleZh: '心象',
+        titleEn: 'PSYCHE',
+        listenLabel: '凝望',
+        silenceLabel: '移开视线',
+        quoteLeft: '「',
+        quoteRight: '」',
+        italic: true,
+        radius: '14px',
+    },
+    minimal: {
+        bg: '#ffffff',
+        border: 'rgba(15, 23, 42, 0.12)',
+        accent: '#475569',
+        text: '#1e293b',
+        subtext: 'rgba(71, 85, 105, 0.6)',
+        fadeColor: '#ffffff',
+        fontFamily: SANS,
+        showCorners: false,
+        showDivider: false,
+        titleZh: '心象',
+        titleEn: 'PSYCHE',
+        listenLabel: '凝望',
+        silenceLabel: '移开视线',
+        quoteLeft: '"',
+        quoteRight: '"',
+        italic: false,
+        radius: '10px',
+    },
+};
+
+export function resolveThinkingChainStyle(
+    styleId?: ThinkingChainStyleId,
+    customColors?: { bg?: string; accent?: string; text?: string },
+): ThinkingChainStyleSpec {
+    if (styleId === 'custom') {
+        const bg = customColors?.bg || '#1f2937';
+        const accent = customColors?.accent || '#fbbf24';
+        const text = customColors?.text || '#f1f5f9';
+        return {
+            ...THINKING_CHAIN_PRESETS.echo,
+            bg,
+            border: accent,
+            accent,
+            text,
+            subtext: text,
+            glow: accent,
+            fadeColor: bg,
+            titleZh: '心象',
+            titleEn: 'PSYCHE',
+            listenLabel: '凝望',
+            silenceLabel: '移开视线',
+        };
+    }
+    return THINKING_CHAIN_PRESETS[styleId || 'echo'] || THINKING_CHAIN_PRESETS.echo;
+}
+
+// 思考链卡片：可视化 metadata.thinkingChain。
+// 内容来源：useChatAI 抽取的 LLM reasoning_content + <think>/<thinking>/<thought>。
+// 多风格通过 resolveThinkingChainStyle() 统一渲染；齿轮触发 onOpenSettings 进入设置弹窗。
+const ThinkingChainBlock: React.FC<{
+    chain: string;
+    styleId?: ThinkingChainStyleId;
+    customColors?: { bg?: string; accent?: string; text?: string };
+    onOpenSettings?: () => void;
+}> = ({ chain, styleId, customColors, onOpenSettings }) => {
+    const [expanded, setExpanded] = useState(false);
+    const trimmed = (chain || '').trim();
+    if (!trimmed) return null;
+    const spec = resolveThinkingChainStyle(styleId, customColors);
+    const firstLine = trimmed.replace(/\s+/g, ' ').slice(0, 38);
+    const hasMore = trimmed.length > 38;
+    return (
+        <div
+            className="mb-2 w-full max-w-full select-text cursor-pointer group"
+            onClick={(e) => { e.stopPropagation(); setExpanded(v => !v); }}
+        >
+            <div
+                className="relative overflow-hidden px-4 py-2.5 transition-all duration-300"
+                style={{
+                    background: spec.bg,
+                    border: `1px solid ${spec.border}`,
+                    borderRadius: spec.radius,
+                    boxShadow: spec.glow
+                        ? `0 2px 8px rgba(20, 10, 30, 0.18), inset 0 0 24px ${spec.glow.replace(/[\d.]+\)$/, '0.06)')}`
+                        : '0 1px 3px rgba(15, 23, 42, 0.08)',
+                }}
+            >
+                {/* 四角装饰括号 */}
+                {spec.showCorners && (
+                    <>
+                        <span aria-hidden className="absolute top-1 left-1 w-2 h-2 border-t border-l pointer-events-none" style={{ borderColor: spec.accent }} />
+                        <span aria-hidden className="absolute top-1 right-1 w-2 h-2 border-t border-r pointer-events-none" style={{ borderColor: spec.accent }} />
+                        <span aria-hidden className="absolute bottom-1 left-1 w-2 h-2 border-b border-l pointer-events-none" style={{ borderColor: spec.accent }} />
+                        <span aria-hidden className="absolute bottom-1 right-1 w-2 h-2 border-b border-r pointer-events-none" style={{ borderColor: spec.accent }} />
+                    </>
+                )}
+                {/* 右上角微光 */}
+                {spec.glow && (
+                    <div
+                        aria-hidden
+                        className="absolute -top-8 -right-8 w-20 h-20 rounded-full opacity-40 pointer-events-none"
+                        style={{ background: `radial-gradient(circle, ${spec.glow} 0%, transparent 70%)` }}
+                    />
+                )}
+
+                {/* 标题行 */}
+                <div className="relative flex items-center gap-2">
+                    <span
+                        className="text-[13px] font-semibold tracking-[0.4em]"
+                        style={{
+                            color: spec.accent,
+                            fontFamily: spec.fontFamily,
+                            textShadow: spec.glow ? `0 0 8px ${spec.glow}` : undefined,
+                        }}
+                    >
+                        {spec.titleZh}
+                    </span>
+                    <span className="text-[8.5px] tracking-[0.32em] opacity-70" style={{ color: spec.text }}>
+                        {spec.titleEn}
+                    </span>
+                    {spec.showCorners && (
+                        <span aria-hidden className="text-[7px] mx-0.5" style={{ color: spec.border }}>◆</span>
+                    )}
+                    <span
+                        className="ml-auto text-[10px] tracking-[0.18em] transition-opacity opacity-65 group-hover:opacity-100"
+                        style={{ color: spec.subtext }}
+                    >
+                        {expanded ? spec.silenceLabel : spec.listenLabel}
+                    </span>
+                </div>
+
+                {/* 装饰横线 */}
+                {spec.showDivider && (
+                    <div className="relative mt-1.5 mb-0.5 flex items-center gap-1.5" aria-hidden>
+                        <span className="h-px flex-1" style={{ background: `linear-gradient(to right, transparent, ${spec.border}, transparent)` }} />
+                        <span className="text-[6px]" style={{ color: spec.accent }}>◇</span>
+                        <span className="h-px flex-1" style={{ background: `linear-gradient(to right, transparent, ${spec.border}, transparent)` }} />
+                    </div>
+                )}
+
+                {!expanded && (
+                    <div
+                        className={`relative mt-1.5 text-[12px] leading-snug truncate ${spec.italic ? 'italic' : ''}`}
+                        style={{ color: spec.text, fontFamily: spec.fontFamily }}
+                    >
+                        <span style={{ color: spec.accent, marginRight: 2 }}>{spec.quoteLeft}</span>
+                        {firstLine}{hasMore ? '…' : ''}
+                        <span style={{ color: spec.accent, marginLeft: 2 }}>{spec.quoteRight}</span>
+                    </div>
+                )}
+                {expanded && (
+                    <div className="relative mt-1.5">
+                        {/* 上下软渐变盖掉系统滚动条；fadeColor 跟卡片背景一致 */}
+                        {spec.fadeColor && (
+                            <>
+                                <div aria-hidden className="absolute top-0 left-0 right-0 h-3 pointer-events-none z-10" style={{ background: `linear-gradient(to bottom, ${spec.fadeColor} 0%, transparent 100%)` }} />
+                                <div aria-hidden className="absolute bottom-0 left-0 right-0 h-3 pointer-events-none z-10" style={{ background: `linear-gradient(to top, ${spec.fadeColor} 0%, transparent 100%)` }} />
+                            </>
+                        )}
+                        <div
+                            className={`no-scrollbar relative pl-3 pr-1 py-2 text-[12.5px] leading-[1.85] whitespace-pre-wrap break-words max-h-72 overflow-auto ${spec.italic ? 'italic' : ''}`}
+                            style={{
+                                color: spec.text,
+                                fontFamily: spec.fontFamily,
+                                borderLeft: `1px solid ${spec.border}`,
+                                textShadow: spec.glow ? '0 0 6px rgba(0, 0, 0, 0.4)' : undefined,
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            {trimmed}
+                        </div>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
 // --- Forward Card with expand/collapse ---
 const ForwardCard: React.FC<{
     forwardData: any;
@@ -210,6 +446,12 @@ interface MessageItemProps {
     /** 麦当劳菜单卡里点了"发送给角色"时调用 */
     onMcdSendCart?: (items: import('./McdCard').McdCartItem[]) => void;
     onMcdCandidate?: (item: import('./McdCard').McdCartItem) => void;
+    /** 思考链卡片视觉与交互 */
+    thinkingChainOptions?: {
+        styleId?: ThinkingChainStyleId;
+        customColors?: { bg?: string; accent?: string; text?: string };
+        onOpenSettings?: () => void;
+    };
 }
 
 const MessageItem = React.memo(({
@@ -239,6 +481,7 @@ const MessageItem = React.memo(({
     showTimestamp = 'hover',
     onMcdSendCart,
     onMcdCandidate,
+    thinkingChainOptions,
 }: MessageItemProps) => {
     const isUser = m.role === 'user';
     const isSystem = m.role === 'system';
@@ -548,6 +791,14 @@ const MessageItem = React.memo(({
                     Added explicit margins to clear absolute avatars.
                 */}
                 <div className={`flex flex-col ${isUser ? 'items-end' : 'items-start'} max-w-[72%] min-w-0 ${!isUser ? 'ml-12' : 'mr-12'}`} {...interactionProps}>
+                    {!isUser && m.metadata?.thinkingChain && (
+                        <ThinkingChainBlock
+                            chain={String(m.metadata.thinkingChain)}
+                            styleId={thinkingChainOptions?.styleId}
+                            customColors={thinkingChainOptions?.customColors}
+                            onOpenSettings={thinkingChainOptions?.onOpenSettings}
+                        />
+                    )}
                     <div className={selectionMode ? 'pointer-events-none' : ''}>
                         {content}
                     </div>
@@ -1136,26 +1387,7 @@ const MessageItem = React.memo(({
 
     // --- Dynamic Style Generation for Bubble ---
     const radius = styleConfig.borderRadius;
-    let borderObj: React.CSSProperties = {};
-    
-    // Border Radius Logic
-    if (!isFirstInGroup && !isLastInGroup) {
-        borderObj = isUser 
-            ? { borderRadius: `${radius}px`, borderTopRightRadius: '4px', borderBottomRightRadius: '4px' }
-            : { borderRadius: `${radius}px`, borderTopLeftRadius: '4px', borderBottomLeftRadius: '4px' };
-    } else if (isFirstInGroup && !isLastInGroup) {
-        borderObj = isUser
-            ? { borderRadius: `${radius}px`, borderBottomRightRadius: '4px' }
-            : { borderRadius: `${radius}px`, borderBottomLeftRadius: '4px' };
-    } else if (!isFirstInGroup && isLastInGroup) {
-        borderObj = isUser
-            ? { borderRadius: `${radius}px`, borderTopRightRadius: '4px' }
-            : { borderRadius: `${radius}px`, borderTopLeftRadius: '4px' };
-    } else {
-            borderObj = isUser
-            ? { borderRadius: `${radius}px`, borderBottomRightRadius: '2px' }
-            : { borderRadius: `${radius}px`, borderBottomLeftRadius: '2px' };
-    }
+    const borderObj: React.CSSProperties = { borderRadius: `${radius}px` };
 
     // Container style (BackgroundColor + Opacity) with bubble variant
     const containerStyle: React.CSSProperties = {

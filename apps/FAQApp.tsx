@@ -6,6 +6,7 @@ import {
     FAQ_TARGET_SECTION_KEY,
     CHANGELOG_2026_04,
     CHANGELOG_2026_05,
+    CHANGELOG_2026_05_10,
 } from '../components/UpdateNotificationEvent';
 
 const FAQ_DATA = [
@@ -91,6 +92,14 @@ interface ChangelogEntry {
 }
 
 const CHANGELOG_ENTRIES: ChangelogEntry[] = [
+    {
+        id: CHANGELOG_2026_05_10,
+        title: '2026 年 5 月 10 日 · 小更新',
+        subtitle: '「心象」上线 · 模型思考链可视化 + 约会（见面模式）bug 修复',
+        date: '2026-05-10',
+        src: 'changelogs/2026-5-10.html',
+        accent: 'from-purple-100 to-indigo-100 border-purple-200',
+    },
     {
         id: CHANGELOG_2026_05,
         title: '2026 年 5 月更新',

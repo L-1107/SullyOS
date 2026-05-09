@@ -4,6 +4,7 @@ import { useOS } from '../context/OSContext';
 import { DB } from '../utils/db';
 import { CharacterProfile, Message, DateState } from '../types';
 import { ContextBuilder } from '../utils/context';
+import { ChatPrompts } from '../utils/chatPrompts';
 import { injectMemoryPalace, processNewMessages, mergePalaceFragmentsIntoMemories } from '../utils/memoryPalace/pipeline';
 import type { PipelineResult } from '../utils/memoryPalace/pipeline';
 import { incrementDigestRound, runCognitiveDigestion } from '../utils/memoryPalace';
@@ -297,9 +298,19 @@ const DateApp: React.FC = () => {
     // --- Session API Logic ---
     const handleSendMessage = async (text: string): Promise<string> => {
         if (!char) throw new Error("No char");
-        
-        // 1. Save User Msg
-        await DB.saveMessage({ charId: char.id, role: 'user', type: 'text', content: text, metadata: { source: 'date' } });
+
+        // 重发场景：如果 DB 里最后一条已经是这条 user 消息（上一轮发送后 API 失败 / 网络抖动等），
+        // 就跳过重复落库，直接走 API。与 chat app 行为对齐，让用户按发送键即可重新触发 LLM。
+        const recentCheck = await DB.getRecentMessagesByCharId(char.id, 1, true);
+        const isRetry = recentCheck.length > 0
+            && recentCheck[0].role === 'user'
+            && recentCheck[0].content === text
+            && recentCheck[0].metadata?.source === 'date';
+
+        if (!isRetry) {
+            // 1. Save User Msg
+            await DB.saveMessage({ charId: char.id, role: 'user', type: 'text', content: text, metadata: { source: 'date' } });
+        }
         
         // 2. Prepare Context
         // Re-fetch messages. Since we saved the opening in handleEnterSession,
@@ -311,19 +322,18 @@ const DateApp: React.FC = () => {
         setDateMessages(dateFiltered);
 
         const limit = char.contextLimit || 500;
-        
-        // Construct History for AI
-        // We exclude the very last message (UserMsg we just sent) from history array 
-        // because we'll pass it as the explicit user prompt "content".
-        // BUT, we must ensure the Opening (Assistant) is included in history.
-        const historyMsgs = allMsgs.slice(-limit, -1).map(m => {
-            const timeAxis = `[${new Date(m.timestamp).toLocaleString('zh-CN')}]`;
-            const source = m.metadata?.source === 'call' ? '[通话]' : m.metadata?.source === 'date' ? '[约会]' : '[聊天]';
-            return {
-                role: m.role,
-                content: m.type === 'image' ? `${timeAxis} ${source} [User sent an image]` : `${timeAxis} ${source} ${m.content}`
-            };
-        });
+
+        // 与 chat app 完全对齐的历史构建：
+        // 1. 开了记忆宫殿 → 按高水位线过滤掉已被向量记忆替代的旧消息（chat 是在 DB 层做的；这里 allMsgs
+        //    用 includeProcessed=true 因为 dateFiltered 显示 + injectMemoryPalace 还要全集，所以手动过一遍）
+        // 2. 复用 ChatPrompts.buildMessageHistory：emoji / html_card / mcd_card / chat_forward / score_card
+        //    等都会被压成短摘要，不再像旧版 mapper 那样把 m.content 原样塞，避免 prompt 暴涨。
+        // 3. 排除最后一条（刚保存的 user msg），下面单独追加带 System Note 的版本。
+        const hwm = parseInt(localStorage.getItem(`mp_lastMsgId_${char.id}`) || '0', 10);
+        const palaceFiltered = hwm > 0 ? allMsgs.filter(m => m.id > hwm) : allMsgs;
+        const historyForBuild = palaceFiltered.slice(0, -1);
+        const emojis = await DB.getEmojis();
+        const { apiMessages: historyMsgs } = ChatPrompts.buildMessageHistory(historyForBuild, limit, char, userProfile || ({} as any), emojis);
 
         await injectMemoryPalace(char, allMsgs);
         let systemPrompt = ContextBuilder.buildCoreContext(char, userProfile);
@@ -413,12 +423,13 @@ const DateApp: React.FC = () => {
         
         if (!lastUserMsg || lastUserMsg.role !== 'user') throw new Error("Context lost");
 
-        // 3. Call API logic
+        // 3. Call API logic（与 handleSendMessage 同款：水位线 + 复用 ChatPrompts.buildMessageHistory）
         const limit = char.contextLimit || 500;
-        const historyMsgs = validMsgs.slice(-limit, -1).map(m => ({
-            role: m.role,
-            content: m.type === 'image' ? '[User sent an image]' : m.content
-        }));
+        const hwm = parseInt(localStorage.getItem(`mp_lastMsgId_${char.id}`) || '0', 10);
+        const palaceFiltered = hwm > 0 ? validMsgs.filter(m => m.id > hwm) : validMsgs;
+        const historyForBuild = palaceFiltered.slice(0, -1);
+        const emojis = await DB.getEmojis();
+        const { apiMessages: historyMsgs } = ChatPrompts.buildMessageHistory(historyForBuild, limit, char, userProfile || ({} as any), emojis);
 
         await injectMemoryPalace(char, allMsgs);
         let systemPrompt = ContextBuilder.buildCoreContext(char, userProfile);

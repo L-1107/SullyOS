@@ -208,9 +208,9 @@ export function extractContent(data: any): string {
     const msg = data?.choices?.[0]?.message;
     let text: string = msg?.content || '';
     if (!text.trim()) text = msg?.reasoning_content || '';
-    // Strip hidden chain-of-thought blocks
-    text = text.replace(/<think>[\s\S]*?<\/think>/gi, '');
-    text = text.replace(/<think>[\s\S]*$/gi, '');
+    // Strip hidden chain-of-thought blocks: <think> / <thinking> / <thought>
+    text = text.replace(/<(think|thinking|thought)>[\s\S]*?<\/\1>/gi, '');
+    text = text.replace(/<(?:think|thinking|thought)>[\s\S]*$/gi, '');
     return text.trim();
 }
 

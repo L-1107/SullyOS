@@ -17,6 +17,7 @@ import ChatInputArea from '../components/chat/ChatInputArea';
 import ChatModals from '../components/chat/ChatModals';
 import Modal from '../components/os/Modal';
 import ProactiveSettingsModal from '../components/chat/ProactiveSettingsModal';
+import ThinkingChainSettingsModal from '../components/chat/ThinkingChainSettingsModal';
 import { useChatAI } from '../hooks/useChatAI';
 import { synthesizeSpeechDetailed, cleanTextForTts } from '../utils/minimaxTts';
 
@@ -73,6 +74,7 @@ const Chat: React.FC = () => {
     const [isSummarizing, setIsSummarizing] = useState(false);
     const [archiveProgress, setArchiveProgress] = useState('');
     const [showProactiveModal, setShowProactiveModal] = useState(false);
+    const [showThinkingChainModal, setShowThinkingChainModal] = useState(false);
 
     // 🛟 人格抢救 Modal：角色被"情感型 0.3"默认值卡住时，进聊天强制弹窗重跑一次检测
     type PersonalityRescueState =
@@ -842,6 +844,12 @@ const Chat: React.FC = () => {
                     updateCharacter(char.id, { htmlModeEnabled: true } as any);
                 }
                 setModalType('chat-settings');
+                break;
+            }
+            case 'thinking-settings': {
+                // 「展示思考」按钮 → 打开思考链设置 modal（开关 / 卡片风格 / 配色 / 追加提示词）
+                if (!char) break;
+                setShowThinkingChainModal(true);
                 break;
             }
         }
@@ -2138,6 +2146,11 @@ const Chat: React.FC = () => {
                             showTimestamp={osTheme.chatShowTimestamp}
                             onMcdSendCart={handleMcdSendCart}
                             onMcdCandidate={handleMcdCandidate}
+                            thinkingChainOptions={{
+                                styleId: (char as any).thinkingChainStyle || 'echo',
+                                customColors: (char as any).thinkingChainCustomColors,
+                                onOpenSettings: () => setShowThinkingChainModal(true),
+                            }}
                         />
                     );
                 })}
@@ -2220,6 +2233,7 @@ const Chat: React.FC = () => {
                     mcdConfigured={mcdConfiguredFlag}
                     mcdActivated={mcdActivated}
                     htmlModeEnabled={!!(char as any).htmlModeEnabled}
+                    showThinkingChain={!!(char as any).showThinkingChain}
                     inputStyle={osTheme.chatInputStyle}
                     sendButtonStyle={osTheme.chatSendButtonStyle}
                     chromeStyle={osTheme.chatChromeStyle}
@@ -2248,6 +2262,32 @@ const Chat: React.FC = () => {
                         stopProactiveChat();
                         updateCharacter(char.id, { proactiveConfig: { ...char.proactiveConfig!, enabled: false } });
                         addToast('已停止主动消息', 'info');
+                    }}
+                />
+            )}
+
+            {/* 思考链设置 Modal — 入口：聊天加号面板「展示思考」按钮长按 / 思考链卡片右上齿轮 */}
+            {char && (
+                <ThinkingChainSettingsModal
+                    isOpen={showThinkingChainModal}
+                    onClose={() => setShowThinkingChainModal(false)}
+                    value={{
+                        enabled: !!(char as any).showThinkingChain,
+                        styleId: ((char as any).thinkingChainStyle as any) || 'echo',
+                        customColors: {
+                            bg: (char as any).thinkingChainCustomColors?.bg || '#1f2937',
+                            accent: (char as any).thinkingChainCustomColors?.accent || '#fbbf24',
+                            text: (char as any).thinkingChainCustomColors?.text || '#f1f5f9',
+                        },
+                        customPrompt: (char as any).thinkingChainCustomPrompt || '',
+                    }}
+                    onChange={(next) => {
+                        const patch: any = {};
+                        if (next.enabled !== undefined) patch.showThinkingChain = next.enabled;
+                        if (next.styleId !== undefined) patch.thinkingChainStyle = next.styleId;
+                        if (next.customColors !== undefined) patch.thinkingChainCustomColors = next.customColors;
+                        if (next.customPrompt !== undefined) patch.thinkingChainCustomPrompt = next.customPrompt;
+                        if (Object.keys(patch).length) updateCharacter(char.id, patch as any);
                     }}
                 />
             )}

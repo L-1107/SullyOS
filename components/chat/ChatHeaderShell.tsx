@@ -308,11 +308,6 @@ const ChatHeaderShell: React.FC<ChatHeaderShellProps> = ({
         <div className="flex w-full min-w-0 max-w-full flex-col items-center text-center">
             <img src={activeCharacter.avatar} className={`w-10 h-10 object-cover shadow-sm ${avatarRadiusClass}`} alt="avatar" />
             <div className={`mt-1 font-bold ${primaryTextClass}`}>{activeCharacter.name}</div>
-            {onlineStatusNode && (
-                <div className="mt-1 flex items-center justify-center gap-2 flex-wrap">
-                    {onlineStatusNode}
-                </div>
-            )}
             {buffs.length > 0 && (
                 <div className="mt-1 min-h-[18px] w-full">
                     {renderBuffRow(true)}
