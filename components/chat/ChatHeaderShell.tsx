@@ -178,7 +178,7 @@ const ChatHeaderShell: React.FC<ChatHeaderShellProps> = ({
 
     const isDarkHeader = headerStyle === 'discord';
     const isPixelHeader = headerStyle === 'pixel';
-    const useCenteredLayout = headerAlign === 'center' || headerStyle === 'telegram' || headerStyle === 'minimal';
+    const useCenteredLayout = headerAlign === 'center';
     const avatarRadiusClass = avatarShape === 'square' ? 'rounded-sm' : avatarShape === 'rounded' ? 'rounded-xl' : 'rounded-full';
 
     const headerToneClass =
@@ -199,7 +199,9 @@ const ChatHeaderShell: React.FC<ChatHeaderShellProps> = ({
                         : chromeStyle === 'floating'
                           ? 'bg-white/85 backdrop-blur-xl border-b border-white/70 shadow-sm'
                           : 'bg-white/80 backdrop-blur-xl border-b border-slate-200/60 shadow-sm';
-    const headerDensityClass = headerDensity === 'compact' ? 'h-20 px-4 pb-3' : headerDensity === 'airy' ? 'h-28 px-6 pb-5' : 'h-24 px-5 pb-4';
+    const headerDensityClass = useCenteredLayout
+        ? (headerDensity === 'compact' ? 'min-h-20 px-4 py-2' : headerDensity === 'airy' ? 'min-h-28 px-6 py-4' : 'min-h-24 px-5 py-3')
+        : (headerDensity === 'compact' ? 'h-20 px-4 pb-3' : headerDensity === 'airy' ? 'h-28 px-6 pb-5' : 'h-24 px-5 pb-4');
     const primaryTextClass = isDarkHeader ? 'text-white' : isPixelHeader ? 'text-[#fff7ed]' : 'text-slate-800';
     const secondaryTextClass = isDarkHeader ? 'text-slate-400' : isPixelHeader ? 'text-[#f3ddc7]' : 'text-slate-400';
     const iconButtonClass = isDarkHeader
@@ -342,7 +344,7 @@ const ChatHeaderShell: React.FC<ChatHeaderShellProps> = ({
     );
 
     return (
-        <div className={`${headerDensityClass} flex items-end shrink-0 z-30 sticky top-0 relative ${headerToneClass}`}>
+        <div className={`${headerDensityClass} flex ${useCenteredLayout ? 'items-center' : 'items-end'} shrink-0 z-30 sticky top-0 relative ${headerToneClass}`}>
             {selectionMode ? (
                 <div className="flex items-center justify-between w-full">
                     <button onClick={onCancelSelection} className={`text-sm font-bold px-2 py-1 ${secondaryTextClass}`}>取消</button>
