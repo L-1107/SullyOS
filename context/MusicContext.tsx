@@ -123,6 +123,21 @@ const loadCfg = (): MusicCfg => {
  */
 export const loadMusicCfgStandalone = (): MusicCfg => loadCfg();
 
+/**
+ * 实时播放快照 — 给 OSContext 主动消息流程读，避免 OSProvider 在 MusicProvider
+ * 外层导致拿不到 useMusic()。MusicProvider mount 后会持续把当前播放状态写到这里。
+ */
+export interface MusicPlaybackSnapshot {
+  current: Song | null;
+  playing: boolean;
+  lyric: LyricLine[];
+  activeLyricIdx: number;
+  listeningTogetherWith: string[];
+  cfg: MusicCfg;
+}
+let __musicPlaybackSnapshot: MusicPlaybackSnapshot | null = null;
+export const loadMusicPlaybackSnapshot = (): MusicPlaybackSnapshot | null => __musicPlaybackSnapshot;
+
 const saveCfg = (cfg: MusicCfg) => {
   try { localStorage.setItem(LS_CFG_KEY, JSON.stringify(cfg)); } catch {}
 };
@@ -763,6 +778,19 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (!('mediaSession' in navigator)) return;
     try { (navigator as any).mediaSession.playbackState = playing ? 'playing' : 'paused'; } catch {}
   }, [playing]);
+
+  // 把当前播放状态写到模块级快照，供非 React 调用者（OSContext.runProactive
+  // 等位于 MusicProvider 上层的代码）读取。useMusic() 在那一层用不了。
+  useEffect(() => {
+    __musicPlaybackSnapshot = {
+      current,
+      playing,
+      lyric,
+      activeLyricIdx,
+      listeningTogetherWith,
+      cfg,
+    };
+  }, [current, playing, lyric, activeLyricIdx, listeningTogetherWith, cfg]);
 
   const value: MusicContextType = {
     cfg, setCfg,
