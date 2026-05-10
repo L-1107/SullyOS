@@ -3,14 +3,13 @@ import React, { createContext, useContext, useEffect, useState, useRef, useCallb
 import { APIConfig, AppID, OSTheme, VirtualTime, CharacterProfile, ChatTheme, Toast, FullBackupData, UserProfile, ApiPreset, GroupProfile, SystemLog, Worldbook, NovelBook, SongSheet, Message, RealtimeConfig, AppearancePreset, CloudBackupConfig, CloudBackupFile } from '../types';
 import { DB } from '../utils/db';
 import { ProactiveChat } from '../utils/proactiveChat';
-import { ChatPrompts } from '../utils/chatPrompts';
-import { buildThinkingChainPrompt } from '../utils/thinkingChainPrompt';
 import { ChatParser } from '../utils/chatParser';
 import { safeFetchJson } from '../utils/safeApi';
 import { normalizeCharacterImpression, normalizeCharacterDefaults } from '../utils/impression';
-import { injectMemoryPalace } from '../utils/memoryPalace/pipeline';
 import { isScheduleFeatureOn } from '../utils/scheduleGenerator';
 import { evaluateEmotionBackground } from '../hooks/useChatAI';
+import { buildChatRequestPayload } from '../utils/chatRequestPayload';
+import { loadMusicPlaybackSnapshot } from './MusicContext';
 import { setMinimaxRegion } from '../utils/minimaxEndpoint';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import { Capacitor } from '@capacitor/core';
@@ -1101,17 +1100,20 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               const preview = (body || `${charName} sent a proactive message`).replace(/\s+/g, ' ').trim() || `${charName} sent a proactive message`;
               void sendProactiveNativeNotification(charId, charName, preview);
 
-              // Web Notification
-              if (!Capacitor.isNativePlatform() && window.Notification && Notification.permission === 'granted') {
+              // Web Notification —— 走 Service Worker 的 showNotification（和"测试推送"
+              // 同一条链路）。页面级 `new Notification(...)` 在标签后台 / PWA / 移动端会
+              // 静默失败，必须走 SW registration 才稳定。
+              if (!Capacitor.isNativePlatform() && 'serviceWorker' in navigator && window.Notification && Notification.permission === 'granted') {
                   const char = characters.find(c => c.id === charId);
-                  try {
-                      const notif = new Notification(charName, {
+                  navigator.serviceWorker.ready.then(reg => {
+                      reg.showNotification(charName, {
                           body: preview,
-                          icon: char?.avatar,
-                          silent: false
-                      });
-                      notif.onclick = () => { window.focus(); setActiveApp(AppID.Chat); setActiveCharacterId(charId); };
-                  } catch (e) { /* notification failed */ }
+                          icon: char?.avatar || './icons/icon-192.png',
+                          badge: './icons/icon-192.png',
+                          tag: `proactive-${charId}`,
+                          data: { charId, kind: 'proactive-1.0' },
+                      }).catch(() => { /* notification failed */ });
+                  }).catch(() => { /* SW not ready */ });
               }
           }
       };
@@ -1153,16 +1155,19 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               const preview = (body || `${charName} sent an active message`).replace(/\s+/g, ' ').trim() || `${charName} sent an active message`;
               void sendProactiveNativeNotification(charId, charName, preview);
 
-              if (!Capacitor.isNativePlatform() && window.Notification && Notification.permission === 'granted') {
+              // 同主动消息 1.0 — 必须走 SW registration.showNotification，页面级 Notification 在
+              // 后台 / PWA / 移动端会静默失败。
+              if (!Capacitor.isNativePlatform() && 'serviceWorker' in navigator && window.Notification && Notification.permission === 'granted') {
                   const char = characters.find(c => c.id === charId);
-                  try {
-                      const notif = new Notification(charName, {
+                  navigator.serviceWorker.ready.then(reg => {
+                      reg.showNotification(charName, {
                           body: preview,
-                          icon: char?.avatar,
-                          silent: false
-                      });
-                      notif.onclick = () => { window.focus(); setActiveApp(AppID.Chat); setActiveCharacterId(charId); };
-                  } catch (e) { /* notification failed */ }
+                          icon: char?.avatar || './icons/icon-192.png',
+                          badge: './icons/icon-192.png',
+                          tag: `proactive-${charId}`,
+                          data: { charId, kind: 'active-msg-2.0' },
+                      }).catch(() => { /* notification failed */ });
+                  }).catch(() => { /* SW not ready */ });
               }
           }
       };
@@ -1297,33 +1302,33 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   metadata: { proactiveHint: true, hidden: true }
               });
 
-              // 3. Build prompt & message history
+              // 3. Build prompt & message history — 走和 useChatAI / emotion eval 同一个 helper，
+              //    保证三家拿到的"材料"完全一致；区别只在前面追加的"现在主动找用户"那条 hint。
               const allMsgs = await DB.getRecentMessagesByCharId(charId, char.contextLimit || 500);
               const emojis = await DB.getEmojis();
               const categories = await DB.getEmojiCategories();
 
-              // 3a. 记忆宫殿向量召回 — 与 useChatAI 主流程一致，挂到 char.memoryPalaceInjection
-              //     buildSystemPrompt 内部 buildCoreContext 会自动读取并注入
-              await injectMemoryPalace(char, allMsgs, undefined, currentUserProfile?.name);
-
-              // 3b. 注入上一轮缓存的意识流独白（innerState），供日程/情绪上下文延续
+              // 上一轮缓存的意识流独白 —— 主路径用 React state，主动消息这里用 ref Map
               const cachedInnerState = proactiveInnerStateRef.current.get(charId) || undefined;
 
-              let systemPrompt = await ChatPrompts.buildSystemPrompt(
-                  char, currentUserProfile, currentGroups, emojis, categories, allMsgs,
-                  currentRealtimeConfig, cachedInnerState,
-              );
-              // 3b'. 思考链注入 — 与 useChatAI 主流程保持一致，主动消息也支持「心象」展示
-              if ((char as any).showThinkingChain) {
-                  const userNameForThinking = (currentUserProfile?.name && currentUserProfile.name.trim()) || '用户';
-                  systemPrompt += `\n\n${buildThinkingChainPrompt(char.name, userNameForThinking)}`;
-                  const extraThinking = ((char as any).thinkingChainCustomPrompt || '').trim();
-                  if (extraThinking) {
-                      systemPrompt += `\n\n## 用户对内心独白的额外要求\n${extraThinking}`;
-                  }
-              }
-              const { apiMessages } = ChatPrompts.buildMessageHistory(allMsgs, char.contextLimit || 500, char, currentUserProfile, emojis);
-              const fullMessages = [{ role: 'system', content: systemPrompt }, ...apiMessages];
+              const payload = await buildChatRequestPayload({
+                  char, userProfile: currentUserProfile!, groups: currentGroups,
+                  emojis, categories,
+                  historyMsgs: allMsgs,
+                  contextLimit: char.contextLimit || 500,
+                  realtimeConfig: currentRealtimeConfig,
+                  innerState: cachedInnerState,
+                  // 实时音乐播放状态 —— OSContext 在 MusicProvider 上层用不了 useMusic()，
+                  // 走 MusicContext 暴露的模块级快照（Provider mount 后会持续写入）
+                  musicSnapshot: loadMusicPlaybackSnapshot(),
+                  // translationConfig / mcdMiniSnap 是 chat-app 会话级 UI 状态，主动消息触发时
+                  // 不存在；保持 undefined 即可，与"用户当时根本没在 chat 界面"的语义一致
+                  htmlMode: { enabled: !!(char as any).htmlModeEnabled, customPrompt: (char as any).htmlModeCustomPrompt },
+                  thinkingChain: { enabled: !!(char as any).showThinkingChain, customPrompt: (char as any).thinkingChainCustomPrompt },
+              });
+              const systemPrompt = payload.systemPrompt;
+              const apiMessages = payload.cleanedApiMessages;
+              const fullMessages = payload.fullMessages;
 
               // 3c. 情绪评估 fire-and-forget — 与主 API 并行，沿用 useChatAI 的 API 选择逻辑：
               //     角色专属情绪 API > 主 apiConfig（与记忆宫殿副 API 完全独立）

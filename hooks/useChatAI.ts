@@ -10,9 +10,9 @@ import { safeFetchJson, safeResponseJson } from '../utils/safeApi';
 import { KeepAlive } from '../utils/keepAlive';
 import { ProactiveChat } from '../utils/proactiveChat';
 import { ContextBuilder } from '../utils/context';
-import { buildThinkingChainPrompt } from '../utils/thinkingChainPrompt';
+// 思考链 / HTML / MCD / memoryPalace 注入已下沉到 chatRequestPayload；这里不再直接调用
 import { useMusic } from '../context/MusicContext';
-import { injectMemoryPalace, processNewMessages, mergePalaceFragmentsIntoMemories } from '../utils/memoryPalace/pipeline';
+import { processNewMessages, mergePalaceFragmentsIntoMemories } from '../utils/memoryPalace/pipeline';
 import { incrementDigestRound, runCognitiveDigestion, detectPersonalityStyle } from '../utils/memoryPalace';
 // evolveFlowNarrative 保留为低频深刷新备用，日常意识流由副 API 的情绪评估同轮产出（innerState 字段）
 // import { evolveFlowNarrative } from '../utils/scheduleGenerator';
@@ -21,8 +21,9 @@ import type { DigestResult } from '../utils/memoryPalace';
 // 麦当劳: useChatAI 现在只读 McdMiniApp 当前快照注入 system prompt + 给 LLM 一个
 // UI 钩子工具 propose_cart_items。MCP 实际调用都在 McdMiniApp 组件内做, useChatAI
 // 不再 import callMcdTool / normalizeMcdToolName / isMcdConfigured / 旧 prompt。
-import { buildMcdMiniAppContextBlock, MCD_PROPOSE_TOOL, autoFixProposalCodesByName } from '../utils/mcdToolBridge';
-import { buildHtmlPrompt, extractHtmlBlocks } from '../utils/htmlPrompt';
+import { MCD_PROPOSE_TOOL, autoFixProposalCodesByName } from '../utils/mcdToolBridge';
+import { extractHtmlBlocks } from '../utils/htmlPrompt';
+import { buildChatRequestPayload } from '../utils/chatRequestPayload';
 
 // ─── 情绪评估（副API，fire & forget）───
 
@@ -626,157 +627,74 @@ export const useChatAI = ({
                 finally { perfStages[label] = Math.round(performance.now() - t0); }
             };
 
-            // 0.9 Memory Palace — 检索记忆，挂到 char.memoryPalaceInjection
-            //     buildCoreContext 会自动读取并注入到 System Prompt
-            //     此时已有"…"气泡，不额外显示状态提示
-            await stageT('memoryPalace', injectMemoryPalace(char, currentMsgs, undefined, userProfile?.name));
-
-            // 1. Build System Prompt (包含实时世界信息 + 记忆宫殿 + 音乐氛围)
-            // 构造 user 的"此刻在听"上下文 —— 前2当前后2共 ≤5 行
-            let userListeningContext: {
-                songName: string; artists: string; lyricWindow: string[]; activeIdx: number;
-            } | null = null;
-            if (music.current && music.playing && music.lyric.length > 0) {
-                const idx = music.activeLyricIdx;
-                if (idx >= 0) {
-                    const from = Math.max(0, idx - 2);
-                    const to = Math.min(music.lyric.length, idx + 2 + 1);
-                    const window = music.lyric.slice(from, to).map(l => l.text);
-                    const activeIdx = idx - from; // 在 window 里的下标
-                    userListeningContext = {
-                        songName: music.current.name,
-                        artists: music.current.artists,
-                        lyricWindow: window,
-                        activeIdx,
-                    };
-                }
-            } else if (music.current && music.playing) {
-                // 无歌词也给个基本提示，让 char 知道对方在听什么
-                userListeningContext = {
-                    songName: music.current.name,
-                    artists: music.current.artists,
-                    lyricWindow: [],
-                    activeIdx: -1,
-                };
-            }
-            // 只有 user 真的把 char 加进"一起听"名单，才算处于共听状态；
-            // 暂停 / 切歌 / 播放出错 / 用户显式踢出 都会让 char 从名单里掉出来。
-            const isListeningTogether = !!(
-                userListeningContext && music.listeningTogetherWith.includes(char.id)
-            );
-            // buildSystemPrompt 和 DB 消息加载彼此独立，并发跑节省 Math.max 以外的等待时间
+            // 0.9 历史消息加载（DB 取完整窗口，最多 contextLimit；React state 上限 200 条）
+            //     和 buildChatRequestPayload 并行跑，省一次 DB 来回的等待
             const limit = char.contextLimit || 500;
-            const systemPromptPromise = ChatPrompts.buildSystemPrompt(
-                char, userProfile, groups, emojis, categories, currentMsgs,
-                realtimeConfig, evolvedNarrative || undefined, userListeningContext,
-                isListeningTogether, music.cfg,
-            );
             const fullHistoryPromise: Promise<Message[] | null> = (limit > currentMsgs.length && char.id)
                 ? DB.getRecentMessagesByCharId(char.id, limit).catch(e => {
                     console.error('Failed to load full history from DB, using React state:', e);
                     return null;
                 })
                 : Promise.resolve(null);
-
-            let [systemPrompt, fullHistory] = await Promise.all([
-                stageT('systemPrompt', systemPromptPromise),
-                stageT('dbHistory', fullHistoryPromise),
-            ]);
-
-            // 1.5 Inject bilingual output instruction when translation is enabled
-            const bilingualActive = translationConfig?.enabled && translationConfig.sourceLang && translationConfig.targetLang;
-            if (bilingualActive) {
-                systemPrompt += `\n\n[CRITICAL: 双语输出模式 - 必须严格遵守]
-你的每句话都必须用以下XML标签格式输出双语内容：
-<翻译>
-<原文>${translationConfig.sourceLang}内容</原文>
-<译文>${translationConfig.targetLang}内容</译文>
-</翻译>
-
-规则：
-- 每句话单独包裹一个<翻译>标签
-- 多句话就输出多个<翻译>标签，一句一个
-- <翻译>标签外不要写任何文字
-- 表情包命令 [[SEND_EMOJI: ...]] 放在所有<翻译>标签外面
-
-示例（${translationConfig.sourceLang}→${translationConfig.targetLang}）：
-<翻译>
-<原文>こんにちは！</原文>
-<译文>你好！</译文>
-</翻译>
-<翻译>
-<原文>今日は何する？</原文>
-<译文>今天做什么？</译文>
-</翻译>`;
-            }
-
-            // 1.6 HTML 模块模式 — 注入内置 HTML 提示词 (+ 用户自定义追加)
-            //     开启后允许 AI 输出 [html]...[/html] 卡片, 客户端解析为 html_card 单独渲染。
-            if ((char as any).htmlModeEnabled) {
-                systemPrompt += `\n\n${buildHtmlPrompt((char as any).htmlModeCustomPrompt)}`;
-            }
-
-            // 1.7 思考过程展示 — 思考链会回灌给用户看，所以让模型用角色的语气和中文思考，
-            //     避免出现"作为 AI 我应该……"这种 OOC 元思考；prompt 同样作用于 thinking 阶段。
-            if ((char as any).showThinkingChain) {
-                const userName = (userProfile?.name && userProfile.name.trim()) || '用户';
-                systemPrompt += `\n\n${buildThinkingChainPrompt(char.name, userName)}`;
-                // 用户额外追加的思考要求（不替换原生提示词，只在末尾追加一段，避免覆盖代入感约束）
-                const extra = ((char as any).thinkingChainCustomPrompt || '').trim();
-                if (extra) {
-                    systemPrompt += `\n\n## 用户对内心独白的额外要求\n${extra}`;
-                }
-            }
-
-            // 2. Build Message History
-            // CRITICAL: Load full message history from DB up to contextLimit,
-            // not from React state which is capped at 200 for rendering performance
+            const fullHistory = await stageT('dbHistory', fullHistoryPromise);
             let contextMsgs = currentMsgs;
             if (fullHistory && fullHistory.length > currentMsgs.length) {
                 console.log(`📊 [Context] Loaded ${fullHistory.length} msgs from DB (React state had ${currentMsgs.length}, contextLimit=${limit})`);
                 contextMsgs = fullHistory;
             }
 
-            // Memory Palace 过滤已在 DB 层完成（getMessagesByCharId / getRecentMessagesByCharId 自动排除 hwm 之前的消息）
-
-            const { apiMessages, historySlice } = ChatPrompts.buildMessageHistory(contextMsgs, limit, char, userProfile, emojis);
-
-            // 2.5 Strip translation content from previous messages to save tokens
-            const cleanedApiMessages = apiMessages.map((msg: any) => {
-                if (typeof msg.content !== 'string') return msg;
-                let c = msg.content;
-                // Strip old %%BILINGUAL%% format
-                if (c.toLowerCase().includes('%%bilingual%%')) {
-                    const idx = c.toLowerCase().indexOf('%%bilingual%%');
-                    c = c.substring(0, idx).trim();
-                }
-                // Strip new XML tag format: keep only <原文> content
-                if (c.includes('<翻译>')) {
-                    c = c.replace(/<翻译>\s*<原文>([\s\S]*?)<\/原文>\s*<译文>[\s\S]*?<\/译文>\s*<\/翻译>/g, '$1').trim();
-                }
-                return { ...msg, content: c };
-            });
-
-            // 2.7 麦当劳 MCP — 若当前会话激活 (麦请求 vs 结束麦请求 谁更新听谁的) 且 token 已配置, 拉工具+追加 system 段
-            //     拉取失败则降级为纯聊天, 不阻断主流程
-            // 麦当劳: 小程序 (McdMiniApp) 打开时把当前 cart/菜单/营养表追加到 system,
-            // 给 LLM 唯一一个 UI 工具 propose_cart_items (在下面 baseReqBody 里挂)。
-            // 旧的"麦请求"文本路径已废弃 (legacy LLM-调-MCP-工具 链路太脆), 现在不再注入任何
-            // 残留 MCP 工具说明, 避免 char 困惑。
+            // 1. 构造完整 chat 请求载荷（memoryPalace 召回 + system prompt + 双语 / HTML / 思考链 / MCD + 历史）
+            //    — 主动消息和 emotion eval 走的是同一个 helper，保证三家拿到的"材料"完全一致。
             const mcdMiniSnap = mcdMiniAppRef?.current;
             const mcdMiniOpen = !!mcdMiniSnap?.open;
-            // 小程序模式下, 所有这一轮新落库的 assistant 消息都打 fromMcdMiniApp 标,
-            // 让 InAppChat 面板能 filter 出来显示 (否则用户看不到 char 的回复, 以为没触发 LLM)
             const mcdInheritMeta = mcdMiniOpen ? { fromMcdMiniApp: true } : undefined;
-            if (mcdMiniOpen) {
-                const block = buildMcdMiniAppContextBlock(mcdMiniSnap, userProfile?.name || '用户');
-                if (block) {
-                    systemPrompt += block;
-                    console.log(`🍔 [MCD-MiniApp] 注入协同点餐上下文 step=${mcdMiniSnap?.step} cartItems=${mcdMiniSnap?.cart?.length || 0} menuItems=${mcdMiniSnap?.menuMeals ? Object.keys(mcdMiniSnap.menuMeals).length : 0} nutrition=${mcdMiniSnap?.nutritionData ? mcdMiniSnap.nutritionData.length : 0}字`);
-                }
-            }
 
-            const fullMessages = [{ role: 'system', content: systemPrompt }, ...cleanedApiMessages];
+            const payload = await stageT('payload', buildChatRequestPayload({
+                char, userProfile, groups, emojis, categories,
+                historyMsgs: contextMsgs,
+                recentMsgsHint: currentMsgs,
+                contextLimit: limit,
+                realtimeConfig,
+                innerState: evolvedNarrative || undefined,
+                userListeningContext: (() => {
+                    if (music.current && music.playing && music.lyric.length > 0) {
+                        const idx = music.activeLyricIdx;
+                        if (idx >= 0) {
+                            const from = Math.max(0, idx - 2);
+                            const to = Math.min(music.lyric.length, idx + 2 + 1);
+                            const window = music.lyric.slice(from, to).map(l => l.text);
+                            return {
+                                songName: music.current.name,
+                                artists: music.current.artists,
+                                lyricWindow: window,
+                                activeIdx: idx - from,
+                            };
+                        }
+                    }
+                    if (music.current && music.playing) {
+                        return {
+                            songName: music.current.name,
+                            artists: music.current.artists,
+                            lyricWindow: [],
+                            activeIdx: -1,
+                        };
+                    }
+                    return null;
+                })(),
+                isListeningTogether: !!(music.current && music.playing && music.listeningTogetherWith.includes(char.id)),
+                musicCfg: music.cfg,
+                translationConfig,
+                htmlMode: { enabled: !!(char as any).htmlModeEnabled, customPrompt: (char as any).htmlModeCustomPrompt },
+                thinkingChain: { enabled: !!(char as any).showThinkingChain, customPrompt: (char as any).thinkingChainCustomPrompt },
+                mcdMiniSnap: mcdMiniOpen ? mcdMiniSnap : undefined,
+            }));
+            const systemPrompt = payload.systemPrompt;
+            const cleanedApiMessages = payload.cleanedApiMessages;
+            const fullMessages = payload.fullMessages;
+            if (payload.flags.mcdActive) {
+                console.log(`🍔 [MCD-MiniApp] 注入协同点餐上下文 step=${mcdMiniSnap?.step} cartItems=${mcdMiniSnap?.cart?.length || 0} menuItems=${mcdMiniSnap?.menuMeals ? Object.keys(mcdMiniSnap.menuMeals).length : 0} nutrition=${mcdMiniSnap?.nutritionData ? mcdMiniSnap.nutritionData.length : 0}字`);
+            }
+            const bilingualActive = payload.flags.bilingualActive;
 
             // Debug: Log context composition
             const systemPromptLength = systemPrompt.length;
@@ -786,11 +704,6 @@ export const useChatAI = ({
 
             // Save for dev debug viewer
             setLastSystemPrompt(systemPrompt);
-
-            // 2.6 Reinforce bilingual instruction at the end of messages for stronger compliance
-            if (bilingualActive) {
-                fullMessages.push({ role: 'system', content: `[Reminder: 每句话必须用 <翻译><原文>...</原文><译文>...</译文></翻译> 标签包裹。一句一个标签。绝对不能省略。]` });
-            }
 
             // 3. Fire-and-forget emotion evaluation in parallel with main API call
             //    直接复用已 build 好的 systemPrompt 和 cleanedApiMessages，确保情绪评估和主 API 看到的上下文完全一致
@@ -2496,8 +2409,8 @@ export const useChatAI = ({
                 const quotedText = firstQuoteMatch[1].trim();
                 if (quotedText) {
                     // Try exact include first, then fuzzy match (first 10 chars)
-                    const targetMsg = historySlice.slice().reverse().find((m: Message) => m.role === 'user' && m.content.includes(quotedText))
-                        || (quotedText.length > 10 ? historySlice.slice().reverse().find((m: Message) => m.role === 'user' && m.content.includes(quotedText.slice(0, 10))) : undefined);
+                    const targetMsg = contextMsgs.slice().reverse().find((m: Message) => m.role === 'user' && m.content.includes(quotedText))
+                        || (quotedText.length > 10 ? contextMsgs.slice().reverse().find((m: Message) => m.role === 'user' && m.content.includes(quotedText.slice(0, 10))) : undefined);
                     if (targetMsg) {
                         const truncated = targetMsg.content.length > 10 ? targetMsg.content.slice(0, 10) + '...' : targetMsg.content;
                         aiReplyTarget = { id: targetMsg.id, content: truncated, name: userProfile.name };
@@ -2635,8 +2548,8 @@ export const useChatAI = ({
                                 if (chunkQuoteMatch) {
                                     const quotedText = chunkQuoteMatch[1].trim();
                                     if (quotedText) {
-                                        const targetMsg = historySlice.slice().reverse().find((m: Message) => m.role === 'user' && m.content.includes(quotedText))
-                                            || (quotedText.length > 10 ? historySlice.slice().reverse().find((m: Message) => m.role === 'user' && m.content.includes(quotedText.slice(0, 10))) : undefined);
+                                        const targetMsg = contextMsgs.slice().reverse().find((m: Message) => m.role === 'user' && m.content.includes(quotedText))
+                                            || (quotedText.length > 10 ? contextMsgs.slice().reverse().find((m: Message) => m.role === 'user' && m.content.includes(quotedText.slice(0, 10))) : undefined);
                                         if (targetMsg) {
                                             const truncated = targetMsg.content.length > 10 ? targetMsg.content.slice(0, 10) + '...' : targetMsg.content;
                                             chunkReplyTarget = { id: targetMsg.id, content: truncated, name: userProfile.name };
