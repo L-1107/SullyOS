@@ -37,6 +37,9 @@ const Chat: React.FC = () => {
     const [messages, setMessages] = useState<Message[]>([]);
     const [totalMsgCount, setTotalMsgCount] = useState(0);
     const [visibleCount, setVisibleCount] = useState(30);
+    const [windowedFocusMsgId, setWindowedFocusMsgId] = useState<number | null>(null);
+    const [flashMsgId, setFlashMsgId] = useState<number | null>(null);
+    const WINDOW_RADIUS = 25;
     const [input, setInput] = useState('');
     const [showPanel, setShowPanel] = useState<'none' | 'actions' | 'emojis' | 'chars'>('none');
     
@@ -506,6 +509,8 @@ const Chat: React.FC = () => {
             setSelectionMode(false);
             setSelectedMsgIds(new Set());
             setShowingTargetIds(new Set());
+            setWindowedFocusMsgId(null);
+            setFlashMsgId(null);
         }
     }, [activeCharacterId, reloadMessages]);
 
@@ -669,22 +674,25 @@ const Chat: React.FC = () => {
         if (!scrollRef.current || selectionMode) return;
         const currentLastId = messages.length > 0 ? messages[messages.length - 1].id : null;
         // Only auto-scroll when a new message is appended (ID changes),
-        // not when loading older history or updating existing messages in-place
+        // not when loading older history or updating existing messages in-place.
+        // windowed 模式下用户在翻旧消息，不要被新消息打断滚走。
         if (currentLastId !== lastMsgIdRef.current) {
-            scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+            if (windowedFocusMsgId === null) {
+                scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+            }
             lastMsgIdRef.current = currentLastId;
         }
-    }, [messages, activeCharacterId, selectionMode]);
+    }, [messages, activeCharacterId, selectionMode, windowedFocusMsgId]);
 
     useEffect(() => {
-        if (isTyping && scrollRef.current && !selectionMode) {
+        if (isTyping && scrollRef.current && !selectionMode && windowedFocusMsgId === null) {
             const now = Date.now();
             if (now - scrollThrottleRef.current > 150) {
                 scrollThrottleRef.current = now;
                 scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
             }
         }
-    }, [messages, isTyping, recallStatus, searchStatus, diaryStatus, selectionMode]);
+    }, [messages, isTyping, recallStatus, searchStatus, diaryStatus, selectionMode, windowedFocusMsgId]);
 
     const formatTime = (ts: number) => {
         return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
@@ -696,6 +704,12 @@ const Chat: React.FC = () => {
         if (!char || (!input.trim() && !customContent)) return;
         const text = customContent || input.trim();
         const type = customType || 'text';
+
+        // 发消息隐含"回到当前聊天"——退出 windowed 旧消息浏览模式
+        if (windowedFocusMsgId !== null) {
+            setWindowedFocusMsgId(null);
+            setFlashMsgId(null);
+        }
 
         // 用户手打"麦请求"三个字 → 等价于点击麦克风按钮 (拉起麦当劳菜单)
         // 不落库, 跟按钮点击行为完全一致, 避免出现"banner 在但菜单没拉起"的诡异状态
@@ -1367,6 +1381,36 @@ const Chat: React.FC = () => {
         addToast(messageId ? '已隐藏历史消息' : '已恢复全部历史记录', 'success');
     };
 
+    // 跳转到旧消息：加载全量到 messages，再用 windowedFocusMsgId 把 displayMessages
+    // 收窄到目标周围 51 条。"回到当前聊天"会把 visibleCount 重置回 30。
+    const handleJumpToMessageInChat = async (messageId: number) => {
+        if (!activeCharacterId) return;
+        setModalType('none');
+        const LARGE = 999999;
+        visibleCountRef.current = LARGE;
+        setVisibleCount(LARGE);
+        await reloadMessages(LARGE);
+        setWindowedFocusMsgId(messageId);
+        setFlashMsgId(messageId);
+        // 等下一帧让目标节点挂上 DOM 再滚
+        requestAnimationFrame(() => {
+            const el = document.getElementById(`chat-msg-${messageId}`);
+            el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        });
+        window.setTimeout(() => setFlashMsgId(null), 2200);
+    };
+
+    const handleBackToCurrent = async () => {
+        setWindowedFocusMsgId(null);
+        setFlashMsgId(null);
+        visibleCountRef.current = 30;
+        setVisibleCount(30);
+        await reloadMessages(30);
+        requestAnimationFrame(() => {
+            scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
+        });
+    };
+
     const handleFullArchive = async () => {
         if (!apiConfig.apiKey || !char) {
             addToast('请先配置 API Key', 'error');
@@ -1648,12 +1692,22 @@ const Chat: React.FC = () => {
 
     // hideBeforeMessageId 不在视觉层过滤：用户依旧能往上翻到旧消息，只是 LLM 拉不到。
     // 真正想从聊天记录里抹掉，应该走"删除"。
-    const displayMessages = useMemo(() => messages
-        .filter(m => m.metadata?.source !== 'date' && m.metadata?.source !== 'call')
-        .filter(m => !m.metadata?.proactiveHint) // Hide proactive system hints
-        .filter(m => { if (char?.hideSystemLogs && m.role === 'system' && m.type !== 'score_card') return false; return true; })
-        .slice(-visibleCount),
-        [messages, char?.id, char?.hideSystemLogs, visibleCount]);
+    // windowed 模式：定位到旧消息时只渲染目标周围 51 条，避免 DOM 卡爆。
+    const displayMessages = useMemo(() => {
+        const base = messages
+            .filter(m => m.metadata?.source !== 'date' && m.metadata?.source !== 'call')
+            .filter(m => !m.metadata?.proactiveHint)
+            .filter(m => { if (char?.hideSystemLogs && m.role === 'system' && m.type !== 'score_card') return false; return true; });
+        if (windowedFocusMsgId !== null) {
+            const idx = base.findIndex(m => m.id === windowedFocusMsgId);
+            if (idx >= 0) {
+                const start = Math.max(0, idx - WINDOW_RADIUS);
+                const end = Math.min(base.length, idx + WINDOW_RADIUS + 1);
+                return base.slice(start, end);
+            }
+        }
+        return base.slice(-visibleCount);
+    }, [messages, char?.id, char?.hideSystemLogs, visibleCount, windowedFocusMsgId]);
 
     const collapsedCount = Math.max(0, totalMsgCount - displayMessages.length);
 
@@ -1894,7 +1948,7 @@ const Chat: React.FC = () => {
                 onSaveSettings={saveSettings} onBgUpload={handleBgUpload} onRemoveBg={() => updateCharacter(char.id, { chatBackground: undefined })}
                 onClearHistory={handleClearHistory} onArchive={handleFullArchive}
                 onCreatePrompt={createNewPrompt} onEditPrompt={editSelectedPrompt} onSavePrompt={handleSavePrompt} onDeletePrompt={handleDeletePrompt}
-                onSetHistoryStart={handleSetHistoryStart} onEnterSelectionMode={handleEnterSelectionMode}
+                onSetHistoryStart={handleSetHistoryStart} onJumpToMessageInChat={handleJumpToMessageInChat} onEnterSelectionMode={handleEnterSelectionMode}
                 onReplyMessage={handleReplyMessage} onEditMessageStart={() => { if (selectedMessage) { setEditContent(selectedMessage.content); setModalType('edit-message'); } }}
                 onConfirmEditMessage={confirmEditMessage} onDeleteMessage={handleDeleteMessage} onCopyMessage={handleCopyMessage} onDeleteEmoji={handleDeleteEmoji} onDeleteCategory={handleDeleteCategory}
                 allCharacters={characters} onSaveCategoryVisibility={handleSaveCategoryVisibility}
@@ -2094,7 +2148,15 @@ const Chat: React.FC = () => {
             })()}
 
             <div ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-hidden pt-6 pb-6 no-scrollbar" style={{ backgroundImage: activeTheme.type === 'custom' && activeTheme.user.backgroundImage ? 'none' : undefined }}>
-                {collapsedCount > 0 && (
+                {windowedFocusMsgId !== null && (
+                    <div className="sticky top-0 z-20 flex justify-center pb-2 pointer-events-none">
+                        <button onClick={handleBackToCurrent} className="pointer-events-auto px-4 py-2 bg-primary text-white rounded-full text-xs font-bold shadow-lg active:scale-95 transition-transform flex items-center gap-1.5">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.2} stroke="currentColor" className="w-3.5 h-3.5"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 13.5 12 21m0 0-7.5-7.5M12 21V3" /></svg>
+                            回到当前聊天
+                        </button>
+                    </div>
+                )}
+                {collapsedCount > 0 && windowedFocusMsgId === null && (
                     <div className="flex justify-center mb-6">
                         <button onClick={async () => {
                             const nextVisibleCount = visibleCount + LOAD_BATCH_SIZE;
@@ -2118,8 +2180,12 @@ const Chat: React.FC = () => {
                         nextMessage.role !== m.role ||
                         Math.abs(nextMessage.timestamp - m.timestamp) > messageGroupGapMs;
                     return (
-                        <MessageItem
+                        <div
                             key={m.id || i}
+                            id={`chat-msg-${m.id}`}
+                            className={flashMsgId === m.id ? 'ring-2 ring-yellow-300 bg-yellow-50/40 rounded-2xl mx-2 transition-all duration-500' : ''}
+                        >
+                        <MessageItem
                             msg={m}
                             isFirstInGroup={breaksWithPrevious}
                             isLastInGroup={breaksWithNext}
@@ -2152,6 +2218,7 @@ const Chat: React.FC = () => {
                                 onOpenSettings: () => setShowThinkingChainModal(true),
                             }}
                         />
+                        </div>
                     );
                 })}
                 
