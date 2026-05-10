@@ -57,6 +57,7 @@ interface ChatModalsProps {
     onSavePrompt: () => void;
     onDeletePrompt: (id: string) => void;
     onSetHistoryStart: (id: number | undefined) => void;
+    onJumpToMessageInChat?: (id: number) => void;
     onEnterSelectionMode: () => void;
     onReplyMessage: () => void;
     onEditMessageStart: () => void;
@@ -129,7 +130,7 @@ const ChatModals: React.FC<ChatModalsProps> = ({
     onTransfer, onImportEmoji, onSaveSettings,
     onBgUpload, onRemoveBg, onClearHistory,
     onArchive, onCreatePrompt, onEditPrompt, onSavePrompt, onDeletePrompt,
-    onSetHistoryStart, onEnterSelectionMode, onReplyMessage, onEditMessageStart, onConfirmEditMessage, onDeleteMessage, onCopyMessage, onDeleteEmoji, onDeleteCategory,
+    onSetHistoryStart, onJumpToMessageInChat, onEnterSelectionMode, onReplyMessage, onEditMessageStart, onConfirmEditMessage, onDeleteMessage, onCopyMessage, onDeleteEmoji, onDeleteCategory,
     allCharacters = [], onSaveCategoryVisibility,
     translationEnabled, onToggleTranslation, translateSourceLang, translateTargetLang, onSetTranslateSourceLang, onSetTranslateLang,
     xhsEnabled, onToggleXhs,
@@ -146,10 +147,40 @@ const ChatModals: React.FC<ChatModalsProps> = ({
     const [visibilitySelection, setVisibilitySelection] = useState<Set<string>>(new Set());
     const [historyPage, setHistoryPage] = useState(0);
     const [historySearch, setHistorySearch] = useState('');
-    const [locatedMsgId, setLocatedMsgId] = useState<number | null>(null);
-    const locatedTimerRef = useRef<number | null>(null);
+    const [pendingHideMsgId, setPendingHideMsgId] = useState<number | null>(null);
+    const longPressTimerRef = useRef<number | null>(null);
+    const longPressTriggeredRef = useRef(false);
     const HISTORY_PAGE_SIZE = 50;
     const HISTORY_SEARCH_MAX = 200;
+    const LONG_PRESS_MS = 450;
+
+    const startHistoryLongPress = (msgId: number) => {
+        longPressTriggeredRef.current = false;
+        if (longPressTimerRef.current) window.clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = window.setTimeout(() => {
+            longPressTriggeredRef.current = true;
+            if (onJumpToMessageInChat) {
+                setModalType('none');
+                setHistoryPage(0);
+                setHistorySearch('');
+                setPendingHideMsgId(null);
+                onJumpToMessageInChat(msgId);
+            }
+        }, LONG_PRESS_MS);
+    };
+    const cancelHistoryLongPress = () => {
+        if (longPressTimerRef.current) {
+            window.clearTimeout(longPressTimerRef.current);
+            longPressTimerRef.current = null;
+        }
+    };
+    const handleHistoryItemClick = (msgId: number) => {
+        if (longPressTriggeredRef.current) {
+            longPressTriggeredRef.current = false;
+            return;
+        }
+        setPendingHideMsgId(msgId);
+    };
 
     // 模糊匹配：query 的所有字符按顺序在 content 里出现即算命中（大小写不敏感）。
     // 中文按字符级 subsequence 匹配，英文同理。
@@ -515,11 +546,11 @@ const ChatModals: React.FC<ChatModalsProps> = ({
 
             {/* History Manager Modal */}
             <Modal
-                isOpen={modalType === 'history-manager'} title="历史记录断点" onClose={() => { setModalType('none'); setHistoryPage(0); setHistorySearch(''); }}
-                footer={<><button onClick={() => onSetHistoryStart(undefined)} className="flex-1 py-3 bg-slate-100 text-slate-600 font-bold rounded-2xl">恢复全部</button><button onClick={() => { setModalType('none'); setHistoryPage(0); setHistorySearch(''); }} className="flex-1 py-3 bg-primary text-white font-bold rounded-2xl">完成</button></>}
+                isOpen={modalType === 'history-manager'} title="历史记录断点" onClose={() => { setModalType('none'); setHistoryPage(0); setHistorySearch(''); setPendingHideMsgId(null); }}
+                footer={<><button onClick={() => onSetHistoryStart(undefined)} className="flex-1 py-3 bg-slate-100 text-slate-600 font-bold rounded-2xl">恢复全部</button><button onClick={() => { setModalType('none'); setHistoryPage(0); setHistorySearch(''); setPendingHideMsgId(null); }} className="flex-1 py-3 bg-primary text-white font-bold rounded-2xl">完成</button></>}
             >
                 <div className="space-y-2 max-h-[50vh] overflow-y-auto no-scrollbar p-1">
-                    <p className="text-xs text-slate-400 text-center mb-2">点击某条消息，将其设为"新的起点"。此条之前的消息将被隐藏且不发送给 AI。</p>
+                    <p className="text-xs text-slate-400 text-center mb-2"><b>短按</b>消息 = 设为隐藏起点（会再次确认） · <b>长按</b>消息 = 跳转到聊天里查看原文</p>
                     {typeof activeCharacter.hideBeforeMessageId === 'number' && activeCharacter.hideBeforeMessageId > 0 && (
                         <div className="bg-violet-50 border border-violet-200 rounded-xl p-2.5 text-[11px] text-violet-800 leading-relaxed mb-2">
                             <b>💡 已经有隐藏起点了</b>：灰色消息是自动/手动归档时标记为"已总结"的，AI 现在看不到原文，但能看到它们的总结。<br/>
@@ -551,25 +582,10 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                         const totalPages = Math.max(1, Math.ceil(limited.length / HISTORY_PAGE_SIZE));
                         const pageMessages = limited.slice(historyPage * HISTORY_PAGE_SIZE, (historyPage + 1) * HISTORY_PAGE_SIZE);
                         const hideCut = activeCharacter.hideBeforeMessageId;
-                        // 搜索状态下点击 = 定位到原列表对应页（不设隐藏起点）
-                        const locateMessage = (msgId: number) => {
-                            const idx = reversed.findIndex(m => m.id === msgId);
-                            if (idx < 0) return;
-                            const targetPage = Math.floor(idx / HISTORY_PAGE_SIZE);
-                            setHistorySearch('');
-                            setHistoryPage(targetPage);
-                            setLocatedMsgId(msgId);
-                            if (locatedTimerRef.current) window.clearTimeout(locatedTimerRef.current);
-                            locatedTimerRef.current = window.setTimeout(() => {
-                                const el = document.getElementById(`history-msg-${msgId}`);
-                                el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                            }, 50);
-                            window.setTimeout(() => setLocatedMsgId(null), 2000);
-                        };
                         return (<>
                             {query && (
                                 <div className="text-xs text-slate-500 px-1 py-1">
-                                    找到 <b className="text-primary">{filtered.length}</b> 条匹配 <span className="text-slate-400">（点击跳转到该消息位置）</span>
+                                    找到 <b className="text-primary">{filtered.length}</b> 条匹配
                                     {filtered.length > HISTORY_SEARCH_MAX && <span className="text-slate-400">（仅显示前 {HISTORY_SEARCH_MAX} 条）</span>}
                                 </div>
                             )}
@@ -589,21 +605,23 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                             {pageMessages.map(m => {
                                 const isCurrentStart = hideCut === m.id;
                                 const isHidden = !!(hideCut && m.id < hideCut);
-                                const isLocated = locatedMsgId === m.id;
-                                const cls = isLocated
-                                    ? 'bg-yellow-50 border-yellow-300 ring-2 ring-yellow-300'
-                                    : isCurrentStart
-                                        ? 'bg-primary/10 border-primary ring-1 ring-primary'
-                                        : isHidden
-                                            ? 'bg-slate-50 border-slate-100 opacity-55'
-                                            : 'bg-white border-slate-100 hover:bg-slate-50';
+                                const cls = isCurrentStart
+                                    ? 'bg-primary/10 border-primary ring-1 ring-primary'
+                                    : isHidden
+                                        ? 'bg-slate-50 border-slate-100 opacity-55'
+                                        : 'bg-white border-slate-100 hover:bg-slate-50';
                                 const contentClass = isHidden ? 'text-slate-400 line-through decoration-slate-300/70' : 'text-slate-500';
                                 return (
                                     <div
                                         key={m.id}
                                         id={`history-msg-${m.id}`}
-                                        onClick={() => query ? locateMessage(m.id) : onSetHistoryStart(m.id)}
-                                        className={`p-3 rounded-xl border cursor-pointer text-xs flex gap-2 items-start transition-colors ${cls}`}
+                                        onClick={() => handleHistoryItemClick(m.id)}
+                                        onPointerDown={() => startHistoryLongPress(m.id)}
+                                        onPointerUp={cancelHistoryLongPress}
+                                        onPointerLeave={cancelHistoryLongPress}
+                                        onPointerCancel={cancelHistoryLongPress}
+                                        onContextMenu={(e) => e.preventDefault()}
+                                        className={`p-3 rounded-xl border cursor-pointer text-xs flex gap-2 items-start transition-colors select-none ${cls}`}
                                     >
                                         <span className="text-slate-400 font-mono whitespace-nowrap pt-0.5">[{new Date(m.timestamp).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}]</span>
                                         <div className="flex-1 min-w-0">
@@ -624,7 +642,47 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                     })()}
                 </div>
             </Modal>
-            
+
+            {/* Confirm Set Hide Start Point */}
+            <Modal
+                isOpen={pendingHideMsgId !== null}
+                title="设为隐藏起点？"
+                onClose={() => setPendingHideMsgId(null)}
+                footer={<>
+                    <button onClick={() => setPendingHideMsgId(null)} className="flex-1 py-3 bg-slate-100 text-slate-600 font-bold rounded-2xl">取消</button>
+                    <button onClick={() => { if (pendingHideMsgId !== null) onSetHistoryStart(pendingHideMsgId); setPendingHideMsgId(null); }} className="flex-1 py-3 bg-primary text-white font-bold rounded-2xl">确认</button>
+                </>}
+            >
+                <div className="space-y-3 text-xs text-slate-600 leading-relaxed">
+                    {(() => {
+                        const m = allHistoryMessages.find(x => x.id === pendingHideMsgId);
+                        if (!m) return <p>消息不存在</p>;
+                        return (<>
+                            <p>该条之前的消息将被隐藏，不再发送给 AI（你仍能在聊天里翻看）。</p>
+                            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
+                                <div className="font-bold text-slate-600 mb-1">{m.role === 'user' ? '我' : activeCharacter.name} <span className="text-slate-400 font-normal text-[10px] ml-1">{new Date(m.timestamp).toLocaleString()}</span></div>
+                                <div className="text-slate-500 line-clamp-3">{m.content}</div>
+                            </div>
+                            {onJumpToMessageInChat && (
+                                <button
+                                    onClick={() => {
+                                        const id = pendingHideMsgId;
+                                        setPendingHideMsgId(null);
+                                        setModalType('none');
+                                        setHistoryPage(0);
+                                        setHistorySearch('');
+                                        if (id !== null) onJumpToMessageInChat(id);
+                                    }}
+                                    className="w-full py-2 text-xs text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-xl transition-colors"
+                                >
+                                    或：跳转到聊天里查看原文
+                                </button>
+                            )}
+                        </>);
+                    })()}
+                </div>
+            </Modal>
+
             <Modal isOpen={modalType === 'message-options'} title="消息操作" onClose={() => setModalType('none')}>
                 <div className="space-y-3">
                     <button onClick={onEnterSelectionMode} className="w-full py-3 bg-slate-50 text-slate-700 font-medium rounded-2xl active:bg-slate-100 transition-colors flex items-center justify-center gap-2">
