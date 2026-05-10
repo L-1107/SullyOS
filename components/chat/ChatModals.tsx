@@ -146,6 +146,8 @@ const ChatModals: React.FC<ChatModalsProps> = ({
     const [visibilitySelection, setVisibilitySelection] = useState<Set<string>>(new Set());
     const [historyPage, setHistoryPage] = useState(0);
     const [historySearch, setHistorySearch] = useState('');
+    const [locatedMsgId, setLocatedMsgId] = useState<number | null>(null);
+    const locatedTimerRef = useRef<number | null>(null);
     const HISTORY_PAGE_SIZE = 50;
     const HISTORY_SEARCH_MAX = 200;
 
@@ -549,10 +551,25 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                         const totalPages = Math.max(1, Math.ceil(limited.length / HISTORY_PAGE_SIZE));
                         const pageMessages = limited.slice(historyPage * HISTORY_PAGE_SIZE, (historyPage + 1) * HISTORY_PAGE_SIZE);
                         const hideCut = activeCharacter.hideBeforeMessageId;
+                        // 搜索状态下点击 = 定位到原列表对应页（不设隐藏起点）
+                        const locateMessage = (msgId: number) => {
+                            const idx = reversed.findIndex(m => m.id === msgId);
+                            if (idx < 0) return;
+                            const targetPage = Math.floor(idx / HISTORY_PAGE_SIZE);
+                            setHistorySearch('');
+                            setHistoryPage(targetPage);
+                            setLocatedMsgId(msgId);
+                            if (locatedTimerRef.current) window.clearTimeout(locatedTimerRef.current);
+                            locatedTimerRef.current = window.setTimeout(() => {
+                                const el = document.getElementById(`history-msg-${msgId}`);
+                                el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            }, 50);
+                            window.setTimeout(() => setLocatedMsgId(null), 2000);
+                        };
                         return (<>
                             {query && (
                                 <div className="text-xs text-slate-500 px-1 py-1">
-                                    找到 <b className="text-primary">{filtered.length}</b> 条匹配
+                                    找到 <b className="text-primary">{filtered.length}</b> 条匹配 <span className="text-slate-400">（点击跳转到该消息位置）</span>
                                     {filtered.length > HISTORY_SEARCH_MAX && <span className="text-slate-400">（仅显示前 {HISTORY_SEARCH_MAX} 条）</span>}
                                 </div>
                             )}
@@ -572,14 +589,22 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                             {pageMessages.map(m => {
                                 const isCurrentStart = hideCut === m.id;
                                 const isHidden = !!(hideCut && m.id < hideCut);
-                                const cls = isCurrentStart
-                                    ? 'bg-primary/10 border-primary ring-1 ring-primary'
-                                    : isHidden
-                                        ? 'bg-slate-50 border-slate-100 opacity-55'
-                                        : 'bg-white border-slate-100 hover:bg-slate-50';
+                                const isLocated = locatedMsgId === m.id;
+                                const cls = isLocated
+                                    ? 'bg-yellow-50 border-yellow-300 ring-2 ring-yellow-300'
+                                    : isCurrentStart
+                                        ? 'bg-primary/10 border-primary ring-1 ring-primary'
+                                        : isHidden
+                                            ? 'bg-slate-50 border-slate-100 opacity-55'
+                                            : 'bg-white border-slate-100 hover:bg-slate-50';
                                 const contentClass = isHidden ? 'text-slate-400 line-through decoration-slate-300/70' : 'text-slate-500';
                                 return (
-                                    <div key={m.id} onClick={() => onSetHistoryStart(m.id)} className={`p-3 rounded-xl border cursor-pointer text-xs flex gap-2 items-start ${cls}`}>
+                                    <div
+                                        key={m.id}
+                                        id={`history-msg-${m.id}`}
+                                        onClick={() => query ? locateMessage(m.id) : onSetHistoryStart(m.id)}
+                                        className={`p-3 rounded-xl border cursor-pointer text-xs flex gap-2 items-start transition-colors ${cls}`}
+                                    >
                                         <span className="text-slate-400 font-mono whitespace-nowrap pt-0.5">[{new Date(m.timestamp).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}]</span>
                                         <div className="flex-1 min-w-0">
                                             <div className="font-bold text-slate-600 mb-0.5">{m.role === 'user' ? '我' : activeCharacter.name}</div>
