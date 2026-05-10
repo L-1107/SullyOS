@@ -146,6 +146,17 @@ const ThinkingChainSettingsModal: React.FC<Props> = ({ isOpen, onClose, value, o
                                 <li><b>代理拒绝转发 thinking 字段</b> → 跟 API 提供方确认对应模型是否启用了 extended thinking</li>
                             </ul>
                         </div>
+                        <div className="mt-2.5 pt-2.5 border-t border-amber-200/60">
+                            <div className="font-bold text-amber-700 mb-1 text-[11.5px]">思考链一直是英文怎么办？</div>
+                            <p>
+                                这通常**不是模型本身的问题**——同一个模型走官方渠道（Anthropic / OpenAI / 智谱直连等）能正常保持中文，是中转 API 把 system prompt 截短或改写造成的。可以试：
+                            </p>
+                            <ul className="list-disc pl-4 space-y-0.5 mt-1">
+                                <li>下面「追加提示词」里再加一条肘击：「thinking 必须中文，禁止英文」</li>
+                                <li>直接在聊天里跟角色说一句「用中文想」</li>
+                                <li>换一个跑得动官克的渠道</li>
+                            </ul>
+                        </div>
                     </section>
 
                     {/* 1. 总开关 */}
