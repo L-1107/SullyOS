@@ -145,7 +145,41 @@ const ChatModals: React.FC<ChatModalsProps> = ({
     const bgInputRef = useRef<HTMLInputElement>(null);
     const [visibilitySelection, setVisibilitySelection] = useState<Set<string>>(new Set());
     const [historyPage, setHistoryPage] = useState(0);
+    const [historySearch, setHistorySearch] = useState('');
     const HISTORY_PAGE_SIZE = 50;
+    const HISTORY_SEARCH_MAX = 200;
+
+    // 模糊匹配：query 的所有字符按顺序在 content 里出现即算命中（大小写不敏感）。
+    // 中文按字符级 subsequence 匹配，英文同理。
+    const fuzzyMatch = (content: string, query: string): boolean => {
+        if (!query) return true;
+        const c = content.toLowerCase();
+        const q = query.toLowerCase();
+        if (c.includes(q)) return true;
+        let idx = 0;
+        for (const ch of q) {
+            const found = c.indexOf(ch, idx);
+            if (found < 0) return false;
+            idx = found + 1;
+        }
+        return true;
+    };
+
+    // 高亮命中的连续子串（优先），否则不高亮（subsequence 命中时高亮意义不大）。
+    const renderHighlighted = (text: string, query: string, baseClass: string) => {
+        if (!query) return <span className={baseClass}>{text}</span>;
+        const lower = text.toLowerCase();
+        const q = query.toLowerCase();
+        const idx = lower.indexOf(q);
+        if (idx < 0) return <span className={baseClass}>{text}</span>;
+        return (
+            <span className={baseClass}>
+                {text.slice(0, idx)}
+                <mark className="bg-yellow-200 text-slate-800 rounded px-0.5">{text.slice(idx, idx + q.length)}</mark>
+                {text.slice(idx + q.length)}
+            </span>
+        );
+    };
 
     const openVisibilityModal = () => {
         if (selectedCategory) {
@@ -479,8 +513,8 @@ const ChatModals: React.FC<ChatModalsProps> = ({
 
             {/* History Manager Modal */}
             <Modal
-                isOpen={modalType === 'history-manager'} title="历史记录断点" onClose={() => { setModalType('none'); setHistoryPage(0); }}
-                footer={<><button onClick={() => onSetHistoryStart(undefined)} className="flex-1 py-3 bg-slate-100 text-slate-600 font-bold rounded-2xl">恢复全部</button><button onClick={() => { setModalType('none'); setHistoryPage(0); }} className="flex-1 py-3 bg-primary text-white font-bold rounded-2xl">完成</button></>}
+                isOpen={modalType === 'history-manager'} title="历史记录断点" onClose={() => { setModalType('none'); setHistoryPage(0); setHistorySearch(''); }}
+                footer={<><button onClick={() => onSetHistoryStart(undefined)} className="flex-1 py-3 bg-slate-100 text-slate-600 font-bold rounded-2xl">恢复全部</button><button onClick={() => { setModalType('none'); setHistoryPage(0); setHistorySearch(''); }} className="flex-1 py-3 bg-primary text-white font-bold rounded-2xl">完成</button></>}
             >
                 <div className="space-y-2 max-h-[50vh] overflow-y-auto no-scrollbar p-1">
                     <p className="text-xs text-slate-400 text-center mb-2">点击某条消息，将其设为"新的起点"。此条之前的消息将被隐藏且不发送给 AI。</p>
@@ -490,16 +524,48 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                             <span className="text-violet-600">记忆宫殿向量记忆有自己的水位线（和这里无关），不用手动管。</span>
                         </div>
                     )}
+                    <div className="sticky top-0 bg-white/95 backdrop-blur-sm z-10 pb-1.5 -mx-1 px-1">
+                        <div className="relative">
+                            <input
+                                type="text"
+                                value={historySearch}
+                                onChange={(e) => { setHistorySearch(e.target.value); setHistoryPage(0); }}
+                                placeholder="模糊搜索历史消息（关键词 / 字符顺序匹配）"
+                                className="w-full pl-8 pr-8 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-primary focus:bg-white transition-colors"
+                            />
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+                            </svg>
+                            {historySearch && (
+                                <button onClick={() => { setHistorySearch(''); setHistoryPage(0); }} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-base leading-none">×</button>
+                            )}
+                        </div>
+                    </div>
                     {(() => {
                         const reversed = allHistoryMessages.slice().reverse();
-                        const totalPages = Math.max(1, Math.ceil(reversed.length / HISTORY_PAGE_SIZE));
-                        const pageMessages = reversed.slice(historyPage * HISTORY_PAGE_SIZE, (historyPage + 1) * HISTORY_PAGE_SIZE);
+                        const query = historySearch.trim();
+                        const filtered = query ? reversed.filter(m => fuzzyMatch(m.content || '', query)) : reversed;
+                        const limited = query ? filtered.slice(0, HISTORY_SEARCH_MAX) : filtered;
+                        const totalPages = Math.max(1, Math.ceil(limited.length / HISTORY_PAGE_SIZE));
+                        const pageMessages = limited.slice(historyPage * HISTORY_PAGE_SIZE, (historyPage + 1) * HISTORY_PAGE_SIZE);
                         const hideCut = activeCharacter.hideBeforeMessageId;
                         return (<>
-                            {reversed.length > HISTORY_PAGE_SIZE && (
+                            {query && (
+                                <div className="text-xs text-slate-500 px-1 py-1">
+                                    找到 <b className="text-primary">{filtered.length}</b> 条匹配
+                                    {filtered.length > HISTORY_SEARCH_MAX && <span className="text-slate-400">（仅显示前 {HISTORY_SEARCH_MAX} 条）</span>}
+                                </div>
+                            )}
+                            {!query && filtered.length === 0 && (
+                                <div className="text-xs text-slate-400 text-center py-4">暂无历史消息</div>
+                            )}
+                            {query && filtered.length === 0 && (
+                                <div className="text-xs text-slate-400 text-center py-4">没有匹配的消息</div>
+                            )}
+                            {limited.length > HISTORY_PAGE_SIZE && (
                                 <div className="flex items-center justify-between px-1 py-1">
                                     <button onClick={() => setHistoryPage(p => Math.max(0, p - 1))} disabled={historyPage === 0} className={`px-3 py-1 text-xs rounded-lg ${historyPage === 0 ? 'text-slate-300' : 'text-primary hover:bg-primary/10'}`}>上一页</button>
-                                    <span className="text-xs text-slate-400">{historyPage + 1} / {totalPages}（共 {reversed.length} 条）</span>
+                                    <span className="text-xs text-slate-400">{historyPage + 1} / {totalPages}（共 {limited.length} 条）</span>
                                     <button onClick={() => setHistoryPage(p => Math.min(totalPages - 1, p + 1))} disabled={historyPage >= totalPages - 1} className={`px-3 py-1 text-xs rounded-lg ${historyPage >= totalPages - 1 ? 'text-slate-300' : 'text-primary hover:bg-primary/10'}`}>下一页</button>
                                 </div>
                             )}
@@ -511,19 +577,20 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                                     : isHidden
                                         ? 'bg-slate-50 border-slate-100 opacity-55'
                                         : 'bg-white border-slate-100 hover:bg-slate-50';
+                                const contentClass = isHidden ? 'text-slate-400 line-through decoration-slate-300/70' : 'text-slate-500';
                                 return (
                                     <div key={m.id} onClick={() => onSetHistoryStart(m.id)} className={`p-3 rounded-xl border cursor-pointer text-xs flex gap-2 items-start ${cls}`}>
                                         <span className="text-slate-400 font-mono whitespace-nowrap pt-0.5">[{new Date(m.timestamp).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}]</span>
                                         <div className="flex-1 min-w-0">
                                             <div className="font-bold text-slate-600 mb-0.5">{m.role === 'user' ? '我' : activeCharacter.name}</div>
-                                            <div className={isHidden ? 'text-slate-400 truncate line-through decoration-slate-300/70' : 'text-slate-500 truncate'}>{m.content}</div>
+                                            <div className="truncate">{renderHighlighted(m.content || '', query, contentClass)}</div>
                                         </div>
                                         {isCurrentStart && <span className="text-primary font-bold text-[10px] bg-white px-2 rounded-full border border-primary/20">起点</span>}
                                         {!isCurrentStart && isHidden && <span className="text-slate-400 font-bold text-[10px] bg-white px-2 rounded-full border border-slate-200">已隐</span>}
                                     </div>
                                 );
                             })}
-                            {reversed.length > HISTORY_PAGE_SIZE && (
+                            {limited.length > HISTORY_PAGE_SIZE && (
                                 <div className="flex items-center justify-center px-1 pt-2">
                                     <span className="text-xs text-slate-400">{historyPage + 1} / {totalPages}</span>
                                 </div>
