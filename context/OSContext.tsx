@@ -4,6 +4,7 @@ import { APIConfig, AppID, OSTheme, VirtualTime, CharacterProfile, ChatTheme, To
 import { DB } from '../utils/db';
 import { ProactiveChat } from '../utils/proactiveChat';
 import { ChatPrompts } from '../utils/chatPrompts';
+import { buildThinkingChainPrompt } from '../utils/thinkingChainPrompt';
 import { ChatParser } from '../utils/chatParser';
 import { safeFetchJson } from '../utils/safeApi';
 import { normalizeCharacterImpression, normalizeCharacterDefaults } from '../utils/impression';
@@ -1308,10 +1309,19 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               // 3b. 注入上一轮缓存的意识流独白（innerState），供日程/情绪上下文延续
               const cachedInnerState = proactiveInnerStateRef.current.get(charId) || undefined;
 
-              const systemPrompt = await ChatPrompts.buildSystemPrompt(
+              let systemPrompt = await ChatPrompts.buildSystemPrompt(
                   char, currentUserProfile, currentGroups, emojis, categories, allMsgs,
                   currentRealtimeConfig, cachedInnerState,
               );
+              // 3b'. 思考链注入 — 与 useChatAI 主流程保持一致，主动消息也支持「心象」展示
+              if ((char as any).showThinkingChain) {
+                  const userNameForThinking = (currentUserProfile?.name && currentUserProfile.name.trim()) || '用户';
+                  systemPrompt += `\n\n${buildThinkingChainPrompt(char.name, userNameForThinking)}`;
+                  const extraThinking = ((char as any).thinkingChainCustomPrompt || '').trim();
+                  if (extraThinking) {
+                      systemPrompt += `\n\n## 用户对内心独白的额外要求\n${extraThinking}`;
+                  }
+              }
               const { apiMessages } = ChatPrompts.buildMessageHistory(allMsgs, char.contextLimit || 500, char, currentUserProfile, emojis);
               const fullMessages = [{ role: 'system', content: systemPrompt }, ...apiMessages];
 
@@ -1333,13 +1343,44 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               // 4. API call
               const baseUrl = api.baseUrl.replace(/\/+$/, '');
               const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${api.apiKey || 'sk-none'}` };
+              const reqBody: any = { model: api.model, messages: fullMessages, temperature: 0.85, stream: false };
+              // 思考链开启时显式向后端请求 extended thinking — 与 useChatAI 同步,
+              // 不同代理认不同入口,全都试一遍,代理不识别的会自动忽略
+              if ((char as any).showThinkingChain) {
+                  const m: string = reqBody.model || '';
+                  if (/^claude-/i.test(m) && !/-thinking$/i.test(m)) {
+                      reqBody.model = `${m}-thinking`;
+                  }
+                  reqBody.thinking = { type: 'enabled', budget_tokens: 4000 };
+                  reqBody.reasoning_effort = 'medium';
+                  reqBody.extra_body = { ...(reqBody.extra_body || {}), thinking: { type: 'enabled', budget_tokens: 4000 } };
+              }
               const data = await safeFetchJson(`${baseUrl}/chat/completions`, {
                   method: 'POST', headers,
-                  body: JSON.stringify({ model: api.model, messages: fullMessages, temperature: 0.85, stream: false })
+                  body: JSON.stringify(reqBody)
               });
 
               // 5. Process & save response
               let aiContent = data.choices?.[0]?.message?.content || '';
+              // 思考链抽取 — 与 useChatAI 保持一致:reasoning_content 字段 + 主 content 里的 <think>/<thinking>/<thought> 块,
+              // 拼接后挂到本回合首条 assistant 消息的 metadata.thinkingChain
+              let pendingThinkingChain: string | null = null;
+              if ((char as any).showThinkingChain) {
+                  const lastReasoning = (data?.choices?.[0]?.message?.reasoning_content || '').trim();
+                  const thinkBlocks: string[] = [];
+                  const thinkPat = /<(think|thinking|thought)>([\s\S]*?)<\/\1>/gi;
+                  let tm: RegExpExecArray | null;
+                  while ((tm = thinkPat.exec(aiContent)) !== null) {
+                      const t = tm[2].trim();
+                      if (t) thinkBlocks.push(t);
+                  }
+                  if (!/<\/(?:think|thinking|thought)>/i.test(aiContent)) {
+                      const openOnly = aiContent.match(/<(?:think|thinking|thought)>([\s\S]*$)/i);
+                      if (openOnly && openOnly[1].trim()) thinkBlocks.push(openOnly[1].trim());
+                  }
+                  const chain = [lastReasoning, ...thinkBlocks].filter(s => !!s).join('\n\n').trim();
+                  if (chain) pendingThinkingChain = chain;
+              }
               aiContent = aiContent.replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/<think>[\s\S]*$/gi, '');
               aiContent = aiContent.replace(/\[\d{4}[-/年]\d{1,2}[-/月]\d{1,2}.*?\]/g, '');
               aiContent = aiContent.replace(/^[\w一-龥]+:\s*/, '');
@@ -1353,26 +1394,37 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   const savedPreviewChunks: string[] = [];
                   const baseTimestamp = Date.now();
                   let offset = 0;
+                  // 思考链只挂到本回合首条 assistant 消息上,避免每个气泡重复
+                  const consumeThinkingMeta = (): { thinkingChain: string } | undefined => {
+                      if (!pendingThinkingChain) return undefined;
+                      const meta = { thinkingChain: pendingThinkingChain };
+                      pendingThinkingChain = null;
+                      return meta;
+                  };
 
                   for (const part of responseParts) {
                       if (part.type === 'emoji') {
                           const foundEmoji = emojis.find(e => e.name === part.content);
                           if (foundEmoji?.url) {
+                              const meta = consumeThinkingMeta();
                               await DB.saveMessage({
                                   charId,
                                   role: 'assistant',
                                   type: 'emoji',
                                   content: foundEmoji.url,
                                   timestamp: baseTimestamp + offset,
+                                  ...(meta ? { metadata: meta } : {}),
                               });
                           } else {
                               const fallbackText = `发送了表情包：${part.content}`;
+                              const meta = consumeThinkingMeta();
                               await DB.saveMessage({
                                   charId,
                                   role: 'assistant',
                                   type: 'text',
                                   content: fallbackText,
                                   timestamp: baseTimestamp + offset,
+                                  ...(meta ? { metadata: meta } : {}),
                               });
                               savedPreviewChunks.push(fallbackText);
                           }
@@ -1385,12 +1437,14 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                           .filter(chunk => ChatParser.hasDisplayContent(chunk));
 
                       for (const chunk of textChunks) {
+                          const meta = consumeThinkingMeta();
                           await DB.saveMessage({
                               charId,
                               role: 'assistant',
                               type: 'text',
                               content: chunk,
                               timestamp: baseTimestamp + offset,
+                              ...(meta ? { metadata: meta } : {}),
                           });
                           savedPreviewChunks.push(chunk);
                           offset += 1;
