@@ -26,7 +26,7 @@ import { EventBoxDB, MemoryNodeDB } from './db';
 import type { LightLLMConfig } from './pipeline';
 import { vectorizeAndStore } from './vectorStore';
 import { bulkSetArchived } from './supabaseVector';
-import { safeFetchJson } from '../safeApi';
+import { safeFetchJson, extractJson } from '../safeApi';
 
 const VALID_ROOMS: MemoryRoom[] = [
     'living_room', 'bedroom', 'study', 'user_room',
@@ -133,14 +133,13 @@ async function callCompressionLLM(
         );
 
         const reply = data.choices?.[0]?.message?.content || '';
-        const match = reply.match(/\{[\s\S]*\}/);
-        if (!match) {
-            console.warn(`🗜️ [Compression] LLM 输出无 JSON 对象，原始前 200 字: ${reply.slice(0, 200)}`);
+        const parsed = extractJson(reply);
+        if (!parsed || typeof parsed !== 'object') {
+            console.warn(`🗜️ [Compression] LLM 输出无法解析为 JSON，原始前 300 字: ${reply.slice(0, 300)}`);
             return null;
         }
-        const parsed = JSON.parse(match[0]);
         if (!parsed.content || typeof parsed.content !== 'string') {
-            console.warn(`🗜️ [Compression] LLM 输出缺少 content 字段`);
+            console.warn(`🗜️ [Compression] LLM 输出缺少 content 字段，已解析键: ${Object.keys(parsed).join(',')}`);
             return null;
         }
         // 硬截断安全网：LLM 超限时截断并追加提示，避免单盒 summary 无限膨胀
@@ -193,7 +192,7 @@ async function compressEventBox(
     // 3. LLM 整合
     const result = await callCompressionLLM(box, oldSummaryContent, liveNodes, llmConfig, charName, userName);
     if (!result) {
-        console.warn(`🗜️ [Compression] ${box.id} LLM 失败，跳过本次压缩（活节点保留）`);
+        console.error(`🗜️ [Compression] ${box.id} "${box.name}" LLM 失败，跳过本次压缩 — 活节点 ${liveNodes.length} 条仍未归档，summary 未生成/未向量化`);
         return false;
     }
 
