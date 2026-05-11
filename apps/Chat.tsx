@@ -96,15 +96,20 @@ const Chat: React.FC = () => {
     const [selectionMode, setSelectionMode] = useState(false);
     const [selectedMsgIds, setSelectedMsgIds] = useState<Set<number>>(new Set());
 
-    // --- Translation State (per-character toggle, global language settings) ---
+    // --- Translation State (per-character) ---
     const [translationEnabled, setTranslationEnabled] = useState(() => {
         try { return JSON.parse(localStorage.getItem(`chat_translate_enabled_${activeCharacterId}`) || 'false'); } catch { return false; }
     });
     const [translateSourceLang, setTranslateSourceLang] = useState(() => {
-        return localStorage.getItem('chat_translate_source_lang') || '日本語';
+        // Fallback to legacy global key so existing users don't lose their setting on upgrade.
+        return localStorage.getItem(`chat_translate_source_lang_${activeCharacterId}`)
+            || localStorage.getItem('chat_translate_source_lang')
+            || '日本語';
     });
     const [translateTargetLang, setTranslateTargetLang] = useState(() => {
-        return localStorage.getItem('chat_translate_lang') || '中文';
+        return localStorage.getItem(`chat_translate_lang_${activeCharacterId}`)
+            || localStorage.getItem('chat_translate_lang')
+            || '中文';
     });
     // Which messages are currently showing "译" version (toggle state only, no API calls)
     const [showingTargetIds, setShowingTargetIds] = useState<Set<number>>(new Set());
@@ -496,10 +501,20 @@ const Chat: React.FC = () => {
                 setSettingsHtmlModeCustomPrompt((char as any).htmlModeCustomPrompt || '');
                 clearUnread(char.id);
             }
-            // Per-character translation toggle
+            // Per-character translation toggle + language pair
             try {
                 setTranslationEnabled(JSON.parse(localStorage.getItem(`chat_translate_enabled_${activeCharacterId}`) || 'false'));
             } catch { setTranslationEnabled(false); }
+            setTranslateSourceLang(
+                localStorage.getItem(`chat_translate_source_lang_${activeCharacterId}`)
+                || localStorage.getItem('chat_translate_source_lang')
+                || '日本語'
+            );
+            setTranslateTargetLang(
+                localStorage.getItem(`chat_translate_lang_${activeCharacterId}`)
+                || localStorage.getItem('chat_translate_lang')
+                || '中文'
+            );
             setVisibleCount(30);
             visibleCountRef.current = 30;
             lastMsgIdRef.current = null;
@@ -1956,8 +1971,8 @@ const Chat: React.FC = () => {
                 onToggleTranslation={() => { const next = !translationEnabled; setTranslationEnabled(next); localStorage.setItem(`chat_translate_enabled_${activeCharacterId}`, JSON.stringify(next)); if (!next) { setShowingTargetIds(new Set()); } }}
                 translateSourceLang={translateSourceLang}
                 translateTargetLang={translateTargetLang}
-                onSetTranslateSourceLang={(lang: string) => { setTranslateSourceLang(lang); localStorage.setItem('chat_translate_source_lang', lang); setShowingTargetIds(new Set()); }}
-                onSetTranslateLang={(lang: string) => { setTranslateTargetLang(lang); localStorage.setItem('chat_translate_lang', lang); setShowingTargetIds(new Set()); }}
+                onSetTranslateSourceLang={(lang: string) => { setTranslateSourceLang(lang); localStorage.setItem(`chat_translate_source_lang_${activeCharacterId}`, lang); setShowingTargetIds(new Set()); }}
+                onSetTranslateLang={(lang: string) => { setTranslateTargetLang(lang); localStorage.setItem(`chat_translate_lang_${activeCharacterId}`, lang); setShowingTargetIds(new Set()); }}
                 xhsEnabled={!!char.xhsEnabled}
                 onToggleXhs={() => updateCharacter(char.id, { xhsEnabled: !char.xhsEnabled })}
                 htmlModeEnabled={!!(char as any).htmlModeEnabled}
