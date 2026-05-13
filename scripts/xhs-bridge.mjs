@@ -434,6 +434,14 @@ createServer(async (req, res) => {
         console.error(`\n[WARNING] cli.py not found at: ${CLI_PATH}`);
         console.error(`  The bridge will start but CLI commands will fail.`);
         console.error(`  Please check your --skills-dir path or place xiaohongshu-skills in the parent directory.`);
+    } else if (!existsSync(join(SKILLS_DIR, 'scripts', 'bridge_server.py'))) {
+        console.error(`\n[WARNING] 检测到 OLD VERSION xiaohongshu-skills！`);
+        console.error(`  ${SKILLS_DIR}\\scripts\\ 里没有 bridge_server.py，说明这是旧版（CDP 架构）。`);
+        console.error(`  本 bridge 是为新版（扩展架构）写的，调旧 cli.py 会出现：`);
+        console.error(`    - 自动弹出空白 Chrome 让你扫码登录`);
+        console.error(`    - 发布/评论等操作用旧 DOM 选择器，小红书改版后会失败`);
+        console.error(`  请从 https://github.com/autoclaw-cc/xiaohongshu-skills 用 Code → Download ZIP 拿最新源码`);
+        console.error(`  （Release 页的 zip 不包含 extension/，是坑）然后整个覆盖到 ${SKILLS_DIR}\\`);
     }
 
     console.log(`\nAvailable endpoints:`);
