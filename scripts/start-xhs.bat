@@ -129,9 +129,9 @@ if not exist "%SKILLS_DIR%\.venv" (
     echo.
 )
 
-REM === Start Chrome on port 9222 with XHS profile ===
-set "CHROME_PROFILE=%USERPROFILE%\.xhs\chrome-profile"
-set "CHROME_PORT=9222"
+REM === Open Chrome to xiaohongshu.com (uses your default profile + extension) ===
+REM 新架构不再需要 --remote-debugging-port，改用 "XHS Bridge" 浏览器扩展控制。
+REM 必须用默认 profile（你安装扩展的那个），不要再用独立 profile。
 
 REM Priority 1: CHROME_BIN environment variable (user can set this for portable Chrome)
 set "CHROME_EXE="
@@ -151,25 +151,22 @@ if not defined CHROME_EXE if exist "%LOCALAPPDATA%\Google\Chrome\Application\chr
 REM Try Chrome in toolkit directory (portable Chrome)
 if not defined CHROME_EXE if exist "%TOOLKIT_DIR%\chrome\chrome.exe" set "CHROME_EXE=%TOOLKIT_DIR%\chrome\chrome.exe"
 if not defined CHROME_EXE if exist "%TOOLKIT_DIR%\Chrome\Application\chrome.exe" set "CHROME_EXE=%TOOLKIT_DIR%\Chrome\Application\chrome.exe"
-REM Try Edge as fallback
-if not defined CHROME_EXE if exist "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe" set "CHROME_EXE=C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
-if not defined CHROME_EXE if exist "%ProgramFiles%\Microsoft\Edge\Application\msedge.exe" set "CHROME_EXE=%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"
 
 if not defined CHROME_EXE (
-    echo [WARN] Chrome/Edge not found in common locations.
+    echo [WARN] Chrome not found in common locations.
     echo        Set CHROME_BIN environment variable to your chrome.exe path.
     echo        Example: set CHROME_BIN=D:\Tools\Chrome\chrome.exe
-    echo        CLI will try to start Chrome automatically.
+    echo        cli.py will try to start Chrome automatically on first request.
 ) else (
-    echo [1] Starting Chrome with XHS profile...
+    echo [1] Opening Chrome to xiaohongshu.com (default profile)...
     echo     Path: %CHROME_EXE%
-    start "" "%CHROME_EXE%" --remote-debugging-port=%CHROME_PORT% --user-data-dir="%CHROME_PROFILE%" --no-first-run --start-maximized https://www.xiaohongshu.com
-    timeout /t 3 /nobreak >nul
+    start "" "%CHROME_EXE%" --start-maximized https://www.xiaohongshu.com
+    timeout /t 2 /nobreak >nul
 )
 
 REM === Step 2: Start bridge server ===
 echo [2] Starting bridge server...
-start "XHS-Bridge" cmd /k node "%BRIDGE%" --skills-dir "%SKILLS_DIR%" --port 18061 --chrome-port %CHROME_PORT%
+start "XHS-Bridge" cmd /k node "%BRIDGE%" --skills-dir "%SKILLS_DIR%" --port 18061
 timeout /t 2 /nobreak >nul
 
 REM === Step 3: Cloudflared tunnel (optional) ===
@@ -197,12 +194,19 @@ if defined CLOUDFLARED (
     echo   Set server URL to: http://localhost:18061/api
 )
 echo.
-echo   Chrome should be open at xiaohongshu.com
+echo   Chrome should be open at xiaohongshu.com (your default profile).
 echo   Please login if not already logged in.
-echo   Login session saved in: %USERPROFILE%\.xhs\chrome-profile\
+echo.
+echo   IMPORTANT: First run only — install the "XHS Bridge" Chrome extension:
+echo     1) Chrome → chrome://extensions/
+echo     2) Top-right: enable "Developer mode"
+echo     3) "Load unpacked" → select %SKILLS_DIR%\extension\
+echo     4) Make sure "XHS Bridge" is enabled.
 echo.
 echo   Troubleshooting:
 echo     - Chrome not found? Set CHROME_BIN=path\to\chrome.exe
+echo     - "Bridge server start timeout"? See cli.py logs in the XHS-Bridge window
+echo     - Extension not connecting? Reload it in chrome://extensions/
 echo     - Chinese path issues? Save this file as ANSI encoding
 echo     - Port in use? Close previous XHS windows first
 echo.
