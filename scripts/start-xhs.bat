@@ -142,9 +142,17 @@ if exist "%PATCH_SCRIPT%" (
     popd
 )
 
-REM === Open Chrome to xiaohongshu.com (uses your default profile + extension) ===
-REM New architecture no longer needs --remote-debugging-port.
-REM Chrome is controlled via the "XHS Bridge" extension installed in default profile.
+REM === Detect skill version: OLD (CDP, needs --remote-debugging-port=9222) vs NEW (Extension Bridge) ===
+set "CHROME_EXTRA_ARGS="
+if exist "%SKILLS_DIR%\scripts\bridge_server.py" (
+    echo [INFO] NEW version skills detected - Chrome will use default profile [extension mode]
+) else (
+    set "CHROME_EXTRA_ARGS=--remote-debugging-port=9222 --user-data-dir=%USERPROFILE%\.xhs\chrome-profile"
+    echo [INFO] OLD version skills detected - Chrome will run with CDP port + isolated profile
+    echo        Login session will be saved in: %USERPROFILE%\.xhs\chrome-profile\
+)
+
+REM === Open Chrome to xiaohongshu.com ===
 
 REM Priority 1: CHROME_BIN environment variable (user can set this for portable Chrome)
 set "CHROME_EXE="
@@ -171,9 +179,9 @@ if not defined CHROME_EXE (
     echo        Example: set CHROME_BIN=D:\Tools\Chrome\chrome.exe
     echo        cli.py will try to start Chrome automatically on first request.
 ) else (
-    echo [1] Opening Chrome to xiaohongshu.com [default profile]...
+    echo [1] Opening Chrome to xiaohongshu.com...
     echo     Path: "%CHROME_EXE%"
-    start "" "%CHROME_EXE%" --start-maximized https://www.xiaohongshu.com
+    start "" "%CHROME_EXE%" %CHROME_EXTRA_ARGS% --no-first-run --start-maximized https://www.xiaohongshu.com
     timeout /t 2 /nobreak >nul
 )
 
@@ -207,14 +215,18 @@ if defined CLOUDFLARED (
     echo   Set server URL to: http://localhost:18061/api
 )
 echo.
-echo   Chrome should be open at xiaohongshu.com (your default profile).
+echo   Chrome should be open at xiaohongshu.com.
 echo   Please login if not already logged in.
 echo.
-echo   IMPORTANT: First run only — install the "XHS Bridge" Chrome extension:
-echo     1) Chrome → chrome://extensions/
-echo     2) Top-right: enable "Developer mode"
-echo     3) "Load unpacked" → select %SKILLS_DIR%\extension\
-echo     4) Make sure "XHS Bridge" is enabled.
+if exist "%SKILLS_DIR%\scripts\bridge_server.py" (
+    echo   NEW VERSION mode - extension required:
+    echo     1) chrome://extensions/  enable Developer mode
+    echo     2) Load unpacked  select %SKILLS_DIR%\extension\
+    echo     3) Make sure "XHS Bridge" is enabled.
+) else (
+    echo   OLD VERSION mode - CDP connection on port 9222.
+    echo   Login session saved in: %USERPROFILE%\.xhs\chrome-profile\
+)
 echo.
 echo   Troubleshooting:
 echo     - Chrome not found? Set CHROME_BIN=path\to\chrome.exe
