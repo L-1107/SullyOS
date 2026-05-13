@@ -427,6 +427,9 @@ interface MessageItemProps {
     selectionMode: boolean;
     isSelected: boolean;
     onToggleSelect: (id: number) => void;
+    /** 思维链卡片在多选模式下有独立勾选框，与 isSelected 分开。 */
+    isThinkingSelected?: boolean;
+    onToggleThinkingSelect?: (id: number) => void;
     // Translation (AI messages only, bilingual content parsed from %%BILINGUAL%%)
     translationEnabled?: boolean;
     isShowingTarget?: boolean;
@@ -466,6 +469,8 @@ const MessageItem = React.memo(({
     selectionMode,
     isSelected,
     onToggleSelect,
+    isThinkingSelected,
+    onToggleThinkingSelect,
     translationEnabled,
     isShowingTarget,
     onTranslateToggle,
@@ -792,12 +797,26 @@ const MessageItem = React.memo(({
                 */}
                 <div className={`flex flex-col ${isUser ? 'items-end' : 'items-start'} max-w-[72%] min-w-0 ${!isUser ? 'ml-12' : 'mr-12'}`} {...interactionProps}>
                     {!isUser && m.metadata?.thinkingChain && (
-                        <ThinkingChainBlock
-                            chain={String(m.metadata.thinkingChain)}
-                            styleId={thinkingChainOptions?.styleId}
-                            customColors={thinkingChainOptions?.customColors}
-                            onOpenSettings={thinkingChainOptions?.onOpenSettings}
-                        />
+                        <div className={`relative w-full ${selectionMode ? 'pl-7' : ''}`}>
+                            {selectionMode && onToggleThinkingSelect && (
+                                <div
+                                    className="absolute left-0 top-3 cursor-pointer z-20 pointer-events-auto"
+                                    onClick={(e) => { e.stopPropagation(); onToggleThinkingSelect(m.id); }}
+                                >
+                                    <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${isThinkingSelected ? 'bg-primary border-primary' : 'border-slate-300 bg-white/80'}`}>
+                                        {isThinkingSelected && <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>}
+                                    </div>
+                                </div>
+                            )}
+                            <div className={selectionMode ? 'pointer-events-none' : ''}>
+                                <ThinkingChainBlock
+                                    chain={String(m.metadata.thinkingChain)}
+                                    styleId={thinkingChainOptions?.styleId}
+                                    customColors={thinkingChainOptions?.customColors}
+                                    onOpenSettings={thinkingChainOptions?.onOpenSettings}
+                                />
+                            </div>
+                        </div>
                     )}
                     <div className={selectionMode ? 'pointer-events-none' : ''}>
                         {content}
