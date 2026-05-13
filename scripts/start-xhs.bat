@@ -158,8 +158,8 @@ if not defined CHROME_EXE (
     echo        Example: set CHROME_BIN=D:\Tools\Chrome\chrome.exe
     echo        cli.py will try to start Chrome automatically on first request.
 ) else (
-    echo [1] Opening Chrome to xiaohongshu.com (default profile)...
-    echo     Path: %CHROME_EXE%
+    echo [1] Opening Chrome to xiaohongshu.com [default profile]...
+    echo     Path: "%CHROME_EXE%"
     start "" "%CHROME_EXE%" --start-maximized https://www.xiaohongshu.com
     timeout /t 2 /nobreak >nul
 )
