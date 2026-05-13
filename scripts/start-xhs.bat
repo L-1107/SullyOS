@@ -129,6 +129,19 @@ if not exist "%SKILLS_DIR%\.venv" (
     echo.
 )
 
+REM === Apply local patches to skills (idempotent, safe to re-run) ===
+REM Currently patches: publish.py tab-selector bug (off-screen carousel tabs).
+set "PATCH_SCRIPT=%TOOLKIT_DIR%\patch-xhs-publish.py"
+if not exist "%PATCH_SCRIPT%" (
+    if exist "%TOOLKIT_DIR%\scripts\patch-xhs-publish.py" set "PATCH_SCRIPT=%TOOLKIT_DIR%\scripts\patch-xhs-publish.py"
+)
+if exist "%PATCH_SCRIPT%" (
+    echo [PATCH] Checking xiaohongshu-skills patches...
+    pushd "%SKILLS_DIR%"
+    uv run python "%PATCH_SCRIPT%"
+    popd
+)
+
 REM === Open Chrome to xiaohongshu.com (uses your default profile + extension) ===
 REM New architecture no longer needs --remote-debugging-port.
 REM Chrome is controlled via the "XHS Bridge" extension installed in default profile.
