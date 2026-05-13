@@ -130,8 +130,8 @@ if not exist "%SKILLS_DIR%\.venv" (
 )
 
 REM === Open Chrome to xiaohongshu.com (uses your default profile + extension) ===
-REM 新架构不再需要 --remote-debugging-port，改用 "XHS Bridge" 浏览器扩展控制。
-REM 必须用默认 profile（你安装扩展的那个），不要再用独立 profile。
+REM New architecture no longer needs --remote-debugging-port.
+REM Chrome is controlled via the "XHS Bridge" extension installed in default profile.
 
 REM Priority 1: CHROME_BIN environment variable (user can set this for portable Chrome)
 set "CHROME_EXE="
