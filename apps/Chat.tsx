@@ -95,6 +95,9 @@ const Chat: React.FC = () => {
     // --- Multi-Select State ---
     const [selectionMode, setSelectionMode] = useState(false);
     const [selectedMsgIds, setSelectedMsgIds] = useState<Set<number>>(new Set());
+    // 思维链是 metadata.thinkingChain，没有独立 id，所以用宿主消息 id 作为键，
+    // 与 selectedMsgIds 并行存在 —— 只勾思维链时只清 metadata，宿主消息保留。
+    const [selectedThinkingMsgIds, setSelectedThinkingMsgIds] = useState<Set<number>>(new Set());
 
     // --- Translation State (per-character) ---
     const [translationEnabled, setTranslationEnabled] = useState(() => {
@@ -1622,6 +1625,15 @@ const Chat: React.FC = () => {
         });
     }, []);
 
+    const toggleThinkingSelection = useCallback((id: number) => {
+        setSelectedThinkingMsgIds(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+        });
+    }, []);
+
     // Memoized callbacks for MessageItem to avoid busting React.memo
     const handleMessageLongPress = useCallback((msg: Message) => {
         setSelectedMessage(msg);
@@ -1629,16 +1641,76 @@ const Chat: React.FC = () => {
     }, []);
 
     const handleBatchDelete = async () => {
-        if (selectedMsgIds.size === 0) return;
-        const deleteCount = selectedMsgIds.size;
-        const ids = Array.from(selectedMsgIds);
-        await DB.deleteMessages(ids);
-        discardVoiceForMessages(ids);
-        setMessages(prev => prev.filter(m => !selectedMsgIds.has(m.id)));
-        setTotalMsgCount(prev => Math.max(0, prev - deleteCount));
-        addToast(`已删除 ${deleteCount} 条消息`, 'success');
+        const msgIdsToDelete = new Set<number>(selectedMsgIds);
+        // 思维链单独勾选、但宿主消息没选 -> 只清 metadata.thinkingChain，保留消息
+        const thinkingIdsToClear = new Set<number>();
+        selectedThinkingMsgIds.forEach(id => {
+            if (!msgIdsToDelete.has(id)) thinkingIdsToClear.add(id);
+        });
+        if (msgIdsToDelete.size === 0 && thinkingIdsToClear.size === 0) return;
+
+        // 删消息时，如果它身上的思维链没被勾选，就尝试迁移到同一轮里下一条 assistant 消息上，
+        // 让"只想删第一条输出，但想留思维链"成立
+        const sorted = [...messages].sort((a, b) => a.id - b.id);
+        const idxById = new Map<number, number>();
+        sorted.forEach((m, i) => idxById.set(m.id, i));
+        const migrations: { targetId: number; chain: string }[] = [];
+        msgIdsToDelete.forEach(id => {
+            const msg = messages.find(x => x.id === id);
+            const chain = msg?.metadata?.thinkingChain;
+            if (!msg || !chain) return;
+            if (selectedThinkingMsgIds.has(id)) return; // 用户主动连思维链一起删
+            const startIdx = idxById.get(id);
+            if (startIdx == null) return;
+            for (let i = startIdx + 1; i < sorted.length; i++) {
+                const next = sorted[i];
+                if (next.role !== 'assistant') break; // 出了这一轮，没法挂靠了
+                if (msgIdsToDelete.has(next.id)) continue;
+                migrations.push({ targetId: next.id, chain: String(chain) });
+                break;
+            }
+        });
+
+        for (const mig of migrations) {
+            await DB.updateMessageMetadata(mig.targetId, (prev) => ({ ...(prev || {}), thinkingChain: mig.chain }));
+        }
+        for (const id of thinkingIdsToClear) {
+            await DB.updateMessageMetadata(id, (prev) => {
+                if (!prev || !('thinkingChain' in prev)) return prev;
+                const { thinkingChain, ...rest } = prev;
+                return rest;
+            });
+        }
+        const ids = Array.from(msgIdsToDelete);
+        if (ids.length > 0) {
+            await DB.deleteMessages(ids);
+            discardVoiceForMessages(ids);
+        }
+
+        const migMap = new Map(migrations.map(m => [m.targetId, m.chain]));
+        setMessages(prev => prev
+            .filter(m => !msgIdsToDelete.has(m.id))
+            .map(m => {
+                if (migMap.has(m.id)) {
+                    return { ...m, metadata: { ...(m.metadata || {}), thinkingChain: migMap.get(m.id) } };
+                }
+                if (thinkingIdsToClear.has(m.id) && m.metadata?.thinkingChain) {
+                    const { thinkingChain, ...rest } = m.metadata;
+                    return { ...m, metadata: rest };
+                }
+                return m;
+            })
+        );
+        setTotalMsgCount(prev => Math.max(0, prev - msgIdsToDelete.size));
+
+        const parts: string[] = [];
+        if (msgIdsToDelete.size > 0) parts.push(`已删除 ${msgIdsToDelete.size} 条消息`);
+        if (thinkingIdsToClear.size > 0) parts.push(`已清除 ${thinkingIdsToClear.size} 条思维链`);
+        addToast(parts.join('，'), 'success');
+
         setSelectionMode(false);
         setSelectedMsgIds(new Set());
+        setSelectedThinkingMsgIds(new Set());
     };
 
     // --- Forward Chat Records ---
@@ -2017,8 +2089,8 @@ const Chat: React.FC = () => {
              
              <ChatHeader
                 selectionMode={selectionMode}
-                selectedCount={selectedMsgIds.size}
-                onCancelSelection={() => { setSelectionMode(false); setSelectedMsgIds(new Set()); }}
+                selectedCount={selectedMsgIds.size + Array.from(selectedThinkingMsgIds).filter(id => !selectedMsgIds.has(id)).length}
+                onCancelSelection={() => { setSelectionMode(false); setSelectedMsgIds(new Set()); setSelectedThinkingMsgIds(new Set()); }}
                 activeCharacter={char}
                 isTyping={isTyping}
                 isSummarizing={isSummarizing}
@@ -2212,6 +2284,8 @@ const Chat: React.FC = () => {
                             selectionMode={selectionMode}
                             isSelected={selectedMsgIds.has(m.id)}
                             onToggleSelect={toggleMessageSelection}
+                            isThinkingSelected={selectedThinkingMsgIds.has(m.id)}
+                            onToggleThinkingSelect={toggleThinkingSelection}
                             translationEnabled={translationEnabled && m.type === 'text' && m.role === 'assistant'}
                             isShowingTarget={showingTargetIds.has(m.id)}
                             onTranslateToggle={handleTranslateToggle}
@@ -2298,7 +2372,7 @@ const Chat: React.FC = () => {
                     onSend={handleSendCallback}
                     onDeleteSelected={handleBatchDelete}
                     onForwardSelected={handleForwardSelected}
-                    selectedCount={selectedMsgIds.size}
+                    selectedCount={selectedMsgIds.size + Array.from(selectedThinkingMsgIds).filter(id => !selectedMsgIds.has(id)).length}
                     emojis={filteredEmojis}
                     characters={characters} activeCharacterId={activeCharacterId}
                     onCharSelect={handleCharSelectCallback}
