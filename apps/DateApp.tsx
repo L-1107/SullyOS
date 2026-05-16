@@ -23,6 +23,11 @@ const DateApp: React.FC = () => {
     const [memoryPalaceResult, setMemoryPalaceResult] = useState<PipelineResult | null>(null);
     const memoryPalaceStatusRef = useRef(memoryPalaceStatus);
     memoryPalaceStatusRef.current = memoryPalaceStatus;
+
+    // characters ref：见面 hook 跑完后用户可能已经在 MemoryPalaceApp 里关掉了宫殿，
+    // 直接闭包里的 charForHook 是回复开始时捕获的，会读到 stale memoryPalaceEnabled=true。
+    const charactersRef = useRef(characters);
+    charactersRef.current = characters;
     
     // Modes: 'select' -> 'peek' -> 'session' | 'settings' | 'history'
     const [mode, setMode] = useState<'select' | 'peek' | 'session' | 'settings' | 'history'>('select');
@@ -236,7 +241,10 @@ const DateApp: React.FC = () => {
     // 与聊天侧 useChatAI 完全一致的 Memory Palace 后台流程：
     // 触发缓冲区处理 + 自动归档（如开启） + 50 轮认知消化。
     const runMemoryPalacePostHook = useCallback(async (charForHook: CharacterProfile) => {
-        if (!charForHook.memoryPalaceEnabled) return;
+        // 用 charactersRef 读最新状态，避免见面流程中用户去 MemoryPalaceApp 关掉宫殿后
+        // 这里仍然按 charForHook 闭包里的旧 enabled 触发一次 LLM 总结
+        const liveBefore = charactersRef.current.find(c => c.id === charForHook.id) || null;
+        if (!liveBefore?.memoryPalaceEnabled) return;
         const mpEmb = memoryPalaceConfig?.embedding;
         const mpLLMConfigured = memoryPalaceConfig?.lightLLM;
         const mpLLM = (mpLLMConfigured?.baseUrl)
@@ -257,14 +265,18 @@ const DateApp: React.FC = () => {
                 (stage) => setMemoryPalaceStatus(stage),
             );
 
+            // pipeline 跑的过程中用户可能又关了宫殿，再 check 一次
+            const liveAfter = charactersRef.current.find(c => c.id === charForHook.id) || null;
+            if (!liveAfter?.memoryPalaceEnabled) return;
+
             if (pipelineResult && pipelineResult.stored > 0) {
                 setMemoryPalaceResult(pipelineResult);
             }
 
-            if (pipelineResult?.autoArchive && (charForHook as any).autoArchiveEnabled) {
+            if (pipelineResult?.autoArchive && (liveAfter as any).autoArchiveEnabled) {
                 try {
                     const mergedMemories = mergePalaceFragmentsIntoMemories(
-                        charForHook.memories || [],
+                        liveAfter.memories || [],
                         pipelineResult.autoArchive.fragments,
                     );
                     updateCharacter(charForHook.id, {
@@ -280,7 +292,7 @@ const DateApp: React.FC = () => {
             const shouldAutoDigest = incrementDigestRound(charForHook.id);
             if (shouldAutoDigest) {
                 setMemoryPalaceStatus(`${charForHook.name}闭上眼睛，开始整理内心…`);
-                const persona = [charForHook.systemPrompt || '', charForHook.worldview || ''].filter(Boolean).join('\n');
+                const persona = [liveAfter.systemPrompt || '', liveAfter.worldview || ''].filter(Boolean).join('\n');
                 await runCognitiveDigestion(charForHook.id, charForHook.name, persona, mpLLM, false, userProfile?.name, mpEmb);
             }
         } catch (e: any) {
