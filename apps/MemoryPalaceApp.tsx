@@ -949,13 +949,10 @@ export default function MemoryPalaceApp() {
         updateCharacter(charId, { autoArchiveEnabled: true } as any);
 
         // 统计未同步消息数并决定是否立即追平历史
-        const { DB } = await import('../utils/db');
-        const { getMemoryPalaceHighWaterMark, processNewMessages, mergePalaceFragmentsIntoMemories } = await import('../utils/memoryPalace/pipeline');
-        const { isMessageSemanticallyRelevant } = await import('../utils/messageFormat');
-
-        const allMsgs = await DB.getMessagesByCharId(charId, true);
-        const hwm0 = getMemoryPalaceHighWaterMark(charId);
-        const unprocessedCount = allMsgs.filter(m => isMessageSemanticallyRelevant(m) && m.id > hwm0).length;
+        // 口径必须和 pipeline 的缓冲区定义一致：排除热区（最后 200 条），
+        // 否则会把"永远不会被处理"的热区也算成未同步，欺骗用户去点立即追平。
+        const { getMemoryPalaceUnprocessedBufferCount } = await import('../utils/memoryPalace/pipeline');
+        const unprocessedCount = await getMemoryPalaceUnprocessedBufferCount(charId);
 
         if (unprocessedCount < 10) {
             addToast('全自动记忆已开启（历史消息都已同步）', 'success');
@@ -986,28 +983,32 @@ export default function MemoryPalaceApp() {
         const target = characters.find(c => c.id === charId);
         if (!target) return;
 
-        const { DB } = await import('../utils/db');
-        const { getMemoryPalaceHighWaterMark, processNewMessages, mergePalaceFragmentsIntoMemories } = await import('../utils/memoryPalace/pipeline');
-        const { isMessageSemanticallyRelevant } = await import('../utils/messageFormat');
+        const {
+            getMemoryPalaceHighWaterMark,
+            getMemoryPalaceUnprocessedBufferCount,
+            processNewMessages,
+            mergePalaceFragmentsIntoMemories,
+        } = await import('../utils/memoryPalace/pipeline');
 
         setAutoArchiveSyncingId(charId);
         setAutoArchiveSyncProgress(`准备中... (${unprocessedCount} 条)`);
         try {
-            const BATCH_SIZE = 170;
             const MAX_ROUNDS = 50;
             let accumulatedMemories = (target as any).memories ? [...(target as any).memories] : [];
             let latestHideBefore = (target as any).hideBeforeMessageId;
             let totalProcessed = 0;
 
             for (let round = 1; round <= MAX_ROUNDS; round++) {
-                const curMsgs = await DB.getMessagesByCharId(charId, true);
                 const curHwm = getMemoryPalaceHighWaterMark(charId);
-                const unprocessed = curMsgs.filter(m => isMessageSemanticallyRelevant(m) && m.id > curHwm).sort((a, b) => a.id - b.id);
-                if (unprocessed.length < 10) break;
-                const batch = unprocessed.slice(0, BATCH_SIZE);
-                setAutoArchiveSyncProgress(`第 ${round} 轮：${batch.length} 条 / 剩余 ${unprocessed.length}`);
+                // 用 pipeline 的真实缓冲区口径（排除热区），避免把热区的 200 条
+                // 当未同步反复重试——下面的 force=true 调用其实也只会处理缓冲区，
+                // 用同一口径循环才能正确收敛。
+                const remaining = await getMemoryPalaceUnprocessedBufferCount(charId);
+                if (remaining < 10) break;
+                setAutoArchiveSyncProgress(`第 ${round} 轮：剩余 ${remaining} 条`);
 
-                const result = await processNewMessages(batch, charId, charName, mpEmb, mpLLM, userProfile.name, true);
+                // processNewMessages 忽略首个参数（内部直接从 DB 加载），传 [] 即可
+                const result = await processNewMessages([], charId, charName, mpEmb, mpLLM, userProfile.name, true);
 
                 // 软跳过：缓冲区没到阈值 / 热区还没被挤出 / 已有任务在跑 —— 不是 palace 失败
                 if (result?.skipReason) {
@@ -1016,8 +1017,6 @@ export default function MemoryPalaceApp() {
                     }
                     break;
                 }
-
-                totalProcessed += batch.length;
 
                 if (result?.autoArchive) {
                     accumulatedMemories = mergePalaceFragmentsIntoMemories(accumulatedMemories, result.autoArchive.fragments);
@@ -1029,6 +1028,7 @@ export default function MemoryPalaceApp() {
                     addToast('追平中断：palace 处理失败，请检查副 API 配置', 'error');
                     break;
                 }
+                totalProcessed += result?.processedMessages || 0;
             }
 
             updateCharacter(charId, { memories: accumulatedMemories, hideBeforeMessageId: latestHideBefore } as any);
