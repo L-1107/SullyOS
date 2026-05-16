@@ -187,6 +187,11 @@ const GroupChat: React.FC = () => {
     /** 群记忆宫殿"提取中"状态文本——非空时显示顶部胶囊状态条 */
     const [groupPalaceStatus, setGroupPalaceStatus] = useState<string>('');
 
+    // ref 出最新 characters，让 finally 里跑的群记忆宫殿能读到"用户刚关掉某个成员宫殿"
+    // 的最新状态——闭包里的 characters 还是发消息那一刻捕获的旧值，会让关闭后还触发一次
+    const charactersRef = useRef(characters);
+    charactersRef.current = characters;
+
     // Token 统计 — 对齐私聊 ChatHeader 的 token badge
     const [lastTokenUsage, setLastTokenUsage] = useState<number | null>(null);
     const [tokenBreakdown, setTokenBreakdown] = useState<{ prompt: number; completion: number; total: number; msgCount: number; pass: string } | null>(null);
@@ -991,7 +996,10 @@ ${recentGroupMsgs}
             // groupMembers 在 try 块内声明，这里在 finally 重新解析
             if (activeGroup) {
                 const groupForPalace = activeGroup;
-                const membersForPalace = characters.filter(c => groupForPalace.members.includes(c.id));
+                // 读 ref 拿最新 characters，否则群里有成员在回复中途被用户关掉 palace
+                // 时，下面这一次还是会按"那时还有人启用"的旧状态去触发 LLM 提取
+                const liveCharacters = charactersRef.current;
+                const membersForPalace = liveCharacters.filter(c => groupForPalace.members.includes(c.id));
                 const hasAnyEnabled = membersForPalace.some(m => m.memoryPalaceEnabled);
                 if (hasAnyEnabled) {
                     processGroupNewMessages(

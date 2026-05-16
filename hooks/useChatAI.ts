@@ -533,6 +533,13 @@ export const useChatAI = ({
     const memoryPalaceStatusRef = useRef(memoryPalaceStatus);
     memoryPalaceStatusRef.current = memoryPalaceStatus;
 
+    // triggerAI 的 finally 在 AI 流式回复完后才跑记忆宫殿后台任务。
+    // 闭包里捕获的 char 是 hook 调用时那一份，如果用户在流式中途把宫殿关了，
+    // 这里读 char.memoryPalaceEnabled 仍然是 true，导致关掉后还会再触发一次
+    // LLM 提取（+ 50 轮认知消化）。用 ref 在 finally 里读最新状态。
+    const charRef = useRef(char);
+    charRef.current = char;
+
     // beforeunload 保护：记忆宫殿后台处理中时，阻止用户意外关闭页面
     useEffect(() => {
         const handler = (e: BeforeUnloadEvent) => {
@@ -2599,7 +2606,9 @@ export const useChatAI = ({
             const mpLLM = (mpLLMConfigured?.baseUrl)
                 ? mpLLMConfigured
                 : { baseUrl: apiConfig.baseUrl, apiKey: apiConfig.apiKey, model: apiConfig.model };
-            if (char.memoryPalaceEnabled && mpEmb?.baseUrl && mpEmb?.apiKey && mpLLM.baseUrl) {
+            // 读 ref 拿到最新的 char 状态；同 id 才信任，否则保守跳过（用户已经切角色了）
+            const liveChar = charRef.current?.id === char.id ? charRef.current : null;
+            if (liveChar?.memoryPalaceEnabled && mpEmb?.baseUrl && mpEmb?.apiKey && mpLLM.baseUrl) {
                 const charName = char.name;
                 // 不再预置"正在回味"状态：pipeline 会在水位线未到时立刻 skip，
                 // 预置状态会让"沉思"指示器一闪让用户误以为在干活。
@@ -2612,6 +2621,11 @@ export const useChatAI = ({
                         setMemoryPalaceStatus(stage);
                     })
                     .then(async (pipelineResult) => {
+                        // pipeline 跑的过程中用户可能又关掉了宫殿，跑完后所有"额外动作"
+                        // （autoArchive 写 char.memories / 50 轮认知消化的 LLM 调用）都要再 check 一次。
+                        const liveAfter = charRef.current?.id === char.id ? charRef.current : null;
+                        if (!liveAfter?.memoryPalaceEnabled) return;
+
                         // 显示结果让用户看到
                         if (pipelineResult && pipelineResult.stored > 0) {
                             setMemoryPalaceResult(pipelineResult);
@@ -2620,7 +2634,7 @@ export const useChatAI = ({
                         // 自动归档：把 palace 提取出的记忆按日期合成 YAML bullets 追加到
                         // char.memories，同时推 hideBeforeMessageId 自动隐藏已总结的聊天
                         // 仅在 char.autoArchiveEnabled 显式开启时执行（默认 off，opt-in）
-                        if (pipelineResult?.autoArchive && updateCharacter && (char as any).autoArchiveEnabled) {
+                        if (pipelineResult?.autoArchive && updateCharacter && (liveAfter as any).autoArchiveEnabled) {
                             try {
                                 const mergedMemories = mergePalaceFragmentsIntoMemories(
                                     char.memories || [],
