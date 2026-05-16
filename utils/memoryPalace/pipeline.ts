@@ -987,6 +987,33 @@ const BUFFER_THRESHOLD = 100;
 /** 处理比例：取缓冲区前 85%，保留尾部 15% 作为下次总结的上下文 */
 const PROCESS_RATIO = 0.85;
 
+/**
+ * 计算当前"真正可被 pipeline 处理"的缓冲区消息数。
+ *
+ * 与 processNewMessages 的口径完全一致：
+ *   - 只数语义相关消息（排除纯图片/语音/表情）
+ *   - 排除最后 HOT_ZONE_SIZE 条（热区永远不会被处理）
+ *   - 只数 id > 高水位标记的部分
+ *
+ * 切勿用"id > hwm"裸过滤——那会把热区的 200 条也算进未同步，
+ * 导致 UI 显示的"未同步条数"远大于 pipeline 实际能处理的量
+ * （表现：弹窗说有几百条未同步，点立即追平却跑不出新 hwm）。
+ */
+export async function getMemoryPalaceUnprocessedBufferCount(charId: string): Promise<number> {
+    const allMessages = await DB.getMessagesByCharId(charId, true);
+    const semantic = allMessages
+        .filter(m => isMessageSemanticallyRelevant(m))
+        .sort((a, b) => a.id - b.id);
+    if (semantic.length <= HOT_ZONE_SIZE) return 0;
+    const hotZoneStartId = semantic[semantic.length - HOT_ZONE_SIZE].id;
+    const hwm = getLastProcessedId(charId);
+    let count = 0;
+    for (const m of semantic) {
+        if (m.id > hwm && m.id < hotZoneStartId) count++;
+    }
+    return count;
+}
+
 /** 并发锁：防止多次 AI 回复同时触发 processNewMessages 产生竞态 */
 const processingLocks = new Set<string>();
 
@@ -1005,6 +1032,8 @@ const processingLocks = new Set<string>();
 export interface PipelineResult {
     stored: number;
     skipped: number;
+    /** 本轮 pipeline 从缓冲区取出处理的消息条数（caller 用于进度展示） */
+    processedMessages?: number;
     memories: { content: string; room: string; importance: number; mood: string; tags: string[] }[];
     batches: { index: number; total: number; extracted: number; ok: boolean; error?: string }[];
     /**
@@ -1280,6 +1309,7 @@ export async function processNewMessages(
         const pipelineResult: PipelineResult = {
             stored: vectorResult.stored,
             skipped: vectorResult.skipped,
+            processedMessages: toProcess.length,
             memories: memories.map(m => ({ content: m.content, room: m.room, importance: m.importance, mood: m.mood, tags: m.tags })),
             batches: batchResults,
             autoArchive,
