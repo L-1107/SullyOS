@@ -2143,6 +2143,7 @@ const Chat: React.FC = () => {
                 isTyping={isTyping}
                 isSummarizing={isSummarizing}
                 isEmotionEvaluating={emotionStatus === 'evaluating'}
+                isInstantSending={instantSendingActive}
                 isMemoryPalaceProcessing={!!memoryPalaceStatus}
                 memoryPalaceStatusText={memoryPalaceStatus}
                 lastTokenUsage={lastTokenUsage}
