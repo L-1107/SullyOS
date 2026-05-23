@@ -332,6 +332,10 @@ const flushInboxToChat = async () => {
           console.warn('[flush:emotion_update] apply failed', e);
         }
       }
+      // 无论成功与否都通知 useChatAI 熄灭 "情绪更新中" 徽章 (buff 已落 / 或这轮没结果).
+      try {
+        window.dispatchEvent(new CustomEvent('instant-emotion-done', { detail: { charId: message.charId } }));
+      } catch { /* SSR-safe */ }
       continue;
     }
 

@@ -374,6 +374,9 @@ export const useChatAI = ({
     // 下一轮 system prompt 会把它作为角色的内心状态注入
     const [evolvedNarrative, setEvolvedNarrative] = useState<string>('');
 
+    // instant 情绪评估的 "情绪更新中" 徽章安全超时句柄 (worker 推回 emotion_update 前别一直转).
+    const instantEmotionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
     // 切换角色时重置
     useEffect(() => {
         setEvolvedNarrative('');
@@ -488,6 +491,18 @@ export const useChatAI = ({
         };
         window.addEventListener('emotion-innerstate-updated', innerStateHandler);
 
+        // worker 的 emotion_update 落库后 activeMsgRuntime fire 'instant-emotion-done' → 熄灭 "情绪更新中".
+        const emotionDoneHandler = (e: Event) => {
+            const detail = (e as CustomEvent).detail;
+            if (detail?.charId !== charIdAtMount) return;
+            setEmotionStatus('');
+            if (instantEmotionTimerRef.current) {
+                clearTimeout(instantEmotionTimerRef.current);
+                instantEmotionTimerRef.current = null;
+            }
+        };
+        window.addEventListener('instant-emotion-done', emotionDoneHandler);
+
         // 2. 离线路径兜底: mount 时检查这个 char 有没有 pending (老版本 / 非 worker-eval 路径残留的 push)
         void ActiveMsgStore.getPendingEmotionEval(charIdAtMount).then((pending) => {
             if (pending) void runEvalForPushedChar();
@@ -496,6 +511,7 @@ export const useChatAI = ({
         return () => {
             window.removeEventListener('post-push-emotion-eval', handler);
             window.removeEventListener('emotion-innerstate-updated', innerStateHandler);
+            window.removeEventListener('instant-emotion-done', emotionDoneHandler);
         };
     }, [char?.id]);
 
@@ -662,6 +678,19 @@ export const useChatAI = ({
                     api: { baseUrl: emotionApi.baseUrl, apiKey: emotionApi.apiKey, model: emotionApi.model },
                 }
                 : undefined;
+
+            // instant 情绪评估在 worker 跑 (副 API), 客户端看不到 LLM 调用时机, 但仍要给用户一个
+            // "情绪更新中" 的可见信号 (header 徽章, 跟本地模式一致), 否则 "发送中" 消失后一片空白像死了.
+            // 从这里点亮, 到 worker 推回 emotion_update (activeMsgRuntime fire 'instant-emotion-done')
+            // 或安全超时 (worker 旧/失败/前端被杀) 时熄灭.
+            if (instantEmotionEval) {
+                setEmotionStatus('evaluating');
+                if (instantEmotionTimerRef.current) clearTimeout(instantEmotionTimerRef.current);
+                instantEmotionTimerRef.current = setTimeout(() => {
+                    setEmotionStatus('');
+                    instantEmotionTimerRef.current = null;
+                }, 150_000);
+            }
 
             // 发送前汇总计时
             const perfPreApi = Math.round(performance.now() - perfSendT0);
