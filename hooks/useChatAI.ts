@@ -415,7 +415,6 @@ function resolveXhsConfig(char: CharacterProfile, realtimeConfig?: RealtimeConfi
     const mcpConfig = realtimeConfig?.xhsMcpConfig;
     const mcpAvailable = !!(mcpConfig?.enabled && mcpConfig?.serverUrl);
     const mcpUrl = mcpConfig?.serverUrl || '';
-    XhsMcpClient.setCookie(mcpConfig?.cookie); // lite Worker auth (no-op for local backends)
     const loggedInUserId = mcpConfig?.loggedInUserId;
     const loggedInNickname = mcpConfig?.loggedInNickname;
     const userXsecToken = mcpConfig?.userXsecToken;
@@ -469,16 +468,7 @@ async function xhsPublish(conf: { mcpUrl: string }, title: string, content: stri
     } catch { /* ignore stock failures */ }
 
     const r = await XhsMcpClient.publishNote(conf.mcpUrl, { title, content, tags, images: images.length > 0 ? images : undefined });
-    // bridge 模式下 r.success 只代表 HTTP 200；真正结果在 r.data 里。必须有 note_id 才算真发出去。
-    const inner: any = r.data || {};
-    const noteId = inner.note_id || inner.noteId || inner.id;
-    const realSuccess = !!(r.success && inner.success !== false && noteId);
-    const detail = inner.msg || (inner.raw ? JSON.stringify(inner.raw).slice(0, 300) : '');
-    return {
-        success: realSuccess,
-        noteId,
-        message: r.error || (realSuccess ? '发布成功' : `发布失败（小红书未确认）: ${detail}`),
-    };
+    return { success: r.success, noteId: r.data?.noteId, message: r.error || (r.success ? '发布成功' : '发布失败') };
 }
 
 async function xhsComment(conf: { mcpUrl: string }, noteId: string, content: string, xsecToken?: string): Promise<{ success: boolean; message: string }> {

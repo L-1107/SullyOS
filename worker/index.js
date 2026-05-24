@@ -1341,20 +1341,17 @@ const XHSLite = (() => {
     const ck = parseCookies(cookieStr);
     const fileInfos = [];
     for (const imgUrl of images) fileInfos.push(await uploadImageFromUrl(cookieStr, ck, imgUrl));
-    if (!fileInfos.length) return { success: false, msg: '小红书发帖至少需要一张图片，请提供 images（图床 URL 数组）' };
+    if (!fileInfos.length) return { error: '小红书发帖至少需要一张图片，请提供 images（图床 URL 数组）' };
     let desc = content;
     const hashTags = [];
     for (const t of tags) { const name = String(t).replace(/^#/, ''); desc += ` #${name}[话题]#`; hashTags.push({ id: '', link: '', name, type: 'topic' }); }
     const r = await signedPost(EDITH, '/web_api/sns/v2/note', buildImageNoteData(title, desc, isPrivate ? 1 : 0, fileInfos, hashTags), cookieStr, ck);
     const noteId = r?.data?.id || r?.data?.note_id || r?.data?.note?.id || '';
-    const ok = !!(r?.success && noteId);
-    return {
-      success: ok,
-      note_id: noteId,
-      msg: ok ? '发布成功' : `发布未确认（小红书未返回笔记ID）: ${JSON.stringify(r).slice(0, 300)}`,
-      uploaded: fileInfos.length,
-      raw: r,
-    };
+    // 失败用 error 字段：bridgePost 会据此判定 success=false（无需改 useChatAI）
+    if (!(r?.success && noteId)) {
+      return { error: `发布失败（小红书未确认）: ${JSON.stringify(r).slice(0, 300)}` };
+    }
+    return { success: true, note_id: noteId, noteId, msg: '发布成功', raw: r };
   }
 
   async function handle(command, body, cookie) {

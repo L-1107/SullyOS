@@ -29,6 +29,18 @@ const detectMode = (serverUrl: string): BackendMode => {
 // Local Bridge/Skills servers ignore the header; the cloud Worker requires it.
 let liteCookie = '';
 
+// Resolve the XHS cookie for bridge requests: prefer the explicitly-set value,
+// otherwise read it straight from persisted realtime config. This keeps chat-
+// driven XHS calls authenticated without any call site having to push it in.
+const resolveLiteCookie = (): string => {
+    if (liteCookie) return liteCookie;
+    try {
+        const raw = localStorage.getItem('os_realtime_config');
+        if (raw) return JSON.parse(raw)?.xhsMcpConfig?.cookie || '';
+    } catch { /* ignore */ }
+    return '';
+};
+
 // ==================== Bridge Mode (REST) ====================
 
 const bridgePost = async (
@@ -40,7 +52,8 @@ const bridgePost = async (
     const url = `${baseUrl}/api/${endpoint}`;
 
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (liteCookie) headers['x-xhs-cookie'] = liteCookie;
+    const ck = resolveLiteCookie();
+    if (ck) headers['x-xhs-cookie'] = ck;
 
     try {
         const resp = await fetch(url, {
