@@ -3103,7 +3103,9 @@ var src_default = {
     if (body?.emotionEval) {
       ctx.waitUntil(runEmotionEval(body, workerEnv, request.url));
     }
-    return await cfWorker.fetch(request, workerEnv, ctx);
+    const replyPromise = cfWorker.fetch(request, workerEnv, ctx);
+    ctx.waitUntil(replyPromise);
+    return await replyPromise;
   },
   async scheduled(_event, env) {
     const workerEnv = await prepareBlobStoreEnv(env);

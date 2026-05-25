@@ -447,7 +447,16 @@ export default {
     if (body?.emotionEval) {
       ctx.waitUntil(runEmotionEval(body, workerEnv, request.url));
     }
-    return await (cfWorker as any).fetch(request, workerEnv, ctx);
+    // 主回复 (LLM 生成 + 切段 + 逐条推送) 在 amsg-instant 库里是同步 await 跑的,
+    // 库的 createCloudflareWorker.fetch 只收 (request, env), 拿不到 ctx, 所以**不会**
+    // 自己进 waitUntil. 客户端关浏览器 / 切后台导致连接断开时, Cloudflare 可能把这条
+    // 还没跑完的请求掐掉 —— 表现为"没回复" / "回复只到一半" / "情绪更新了但聊天没回来"
+    // (情绪有下面那条 waitUntil 护着, 主回复没有, 差别就在这).
+    // 这里手动把主回复 promise 也挂进 waitUntil: 即使客户端断开, worker 也会活到
+    // 生成 + 全部推送跑完为止; 客户端仍在线时 return await 照常拿到 200 + 诊断 data.
+    const replyPromise = (cfWorker as any).fetch(request, workerEnv, ctx);
+    ctx.waitUntil(replyPromise);
+    return await replyPromise;
   },
   async scheduled(_event: unknown, env: Env) {
     const workerEnv = await prepareBlobStoreEnv(env);
