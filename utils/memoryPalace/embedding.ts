@@ -18,13 +18,16 @@ export async function getEmbedding(text: string, config: EmbeddingConfig): Promi
 }
 
 /**
- * 批量文本向量化（一次最多 20 条，超出自动分批）
+ * 批量文本向量化（一次最多 10 条，超出自动分批）
  * 返回 Float32Array[] — 比 number[][] 节省约 50% 内存
  */
 export async function getEmbeddings(texts: string[], config: EmbeddingConfig): Promise<Float32Array[]> {
     if (texts.length === 0) return [];
 
-    const BATCH_SIZE = 20;
+    // DashScope（Qwen 官端）的 text-embedding-v3/v4、Qwen3-Embedding 单次 batch
+    // 硬上限是 10 条，超过直接 400 InvalidParameter。取 10 作为通用安全值：
+    // 硅基流动等 bge 系列用 10 也照常工作，纯按 token 计费不受影响。
+    const BATCH_SIZE = 10;
     const results: Float32Array[] = [];
 
     for (let i = 0; i < texts.length; i += BATCH_SIZE) {
