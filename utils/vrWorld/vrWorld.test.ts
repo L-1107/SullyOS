@@ -107,4 +107,24 @@ describe('parseVROutput', () => {
         const out = parseVROutput(`<批注>没有段落号</批注><动态>x</动态>`);
         expect(out.annotations).toHaveLength(0);
     });
+
+    it('tolerates full-width quotes / colons / no-space tags', () => {
+        const raw = [
+            '<彼方>',
+            '<批注 段落="2">全角引号</批注>',   // 全角引号
+            '<批注段落=4>无空格无引号</批注>',     // 无空格、无引号
+            '<批注 段落：7 回应：#9f3a>全角冒号+回应</批注>',
+            '<动态>读完了</动态>',
+            '</彼方>',
+        ].join('\n');
+        const out = parseVROutput(raw);
+        expect(out.annotations.map(a => a.segIdx)).toEqual([2, 4, 7]);
+        expect(out.annotations[2].refLabel).toBe('9f3a');
+    });
+
+    it('keeps all annotations across many paragraphs', () => {
+        const raw = Array.from({ length: 5 }, (_, i) => `<批注 段落="${i * 3}">第${i}条</批注>`).join('') + '<动态>x</动态>';
+        const out = parseVROutput(raw);
+        expect(out.annotations).toHaveLength(5);
+    });
 });

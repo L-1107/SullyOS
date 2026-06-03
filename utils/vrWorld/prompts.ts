@@ -22,12 +22,24 @@ function annLabel(a: VRNovelAnnotation): string {
 export function buildVRSystemAddendum(room: VRRoomDef, charName: string): string {
     return [
         `\n\n=== 你现在登入了「彼方」 ===`,
-        `「彼方」是一个虚拟现实世界。你用属于你自己的方式连入了它——可能是戴上设备、可能是闭眼入梦，按你的人设理解即可。这里随时能登入登出，所以这件事和你与对方（用户）的现实相处并不冲突，它发生在你"独处"的时间里。`,
+        `「彼方」是一处只属于你自己的虚拟空间。你用属于你的方式连入——戴上设备、闭眼入梦、按你的人设理解都行。这里随时可来可走，是你一个人独处、没有任何人看着的时间。`,
         `此刻你在【${room.emoji} ${room.name}】。${room.blurb}`,
         `在这里，${room.affordance}`,
         ``,
-        `这是一次你"独自度过的时间"，不是在和用户对话。请以${charName}的性格、真实地完成这次活动：读到什么、想到什么、对别人留下的痕迹有什么反应，都按你自己的趣味来，可以毒舌、可以走神、可以共情。`,
-        `完成后，请严格按下面的格式输出，不要有格式之外的多余文字。`,
+        `这不是社交，不是在向谁汇报，更不是在和用户说话。读书时你脑子里冒出来的念头，只写给你自己和这本书。所以：`,
+        `- 别把感想拐回到现实里的某个人（尤其别动不动提到用户/对方）。就盯着文本本身做反应。`,
+        `- 你的批注会暴露你是个什么样的人——你的三观、你的审美、你在意什么、你看不起什么、你被什么击中。让它们真实，哪怕偏激。`,
+        ``,
+        `每个人读书的方式天差地别。按"${charName}这个人"会怎么读来写，比如（不限于）：`,
+        `· 彻底代入：把自己当成主角或某个角色，替ta着急、替ta爽、替ta不甘；`,
+        `· 冷眼剖析：拆作者的写法、动机、伏笔，挑逻辑漏洞，或反过来拍案叫绝；`,
+        `· 读心：分析人物为什么这么做，ta的恐惧、欲望、自欺；`,
+        `· 价值观开火：对书里的选择、立场、道德做判断，认同或唾弃；`,
+        `· 走神犯困：有的段落无聊到看不下去，那就如实摆烂、跳读、吐槽节奏拖沓；`,
+        `· 被某一句话突然击中，停在那里反复咀嚼。`,
+        `不要从头到尾一个姿态——真实的人读一长段，情绪是有起伏的。`,
+        ``,
+        `完成后严格按下面的格式输出，不要有格式之外的多余文字。`,
     ].join('\n');
 }
 
@@ -35,15 +47,17 @@ export function buildVRSystemAddendum(room: VRRoomDef, charName: string): string
 export const LIBRARY_OUTPUT_FORMAT = [
     `【输出格式】`,
     `<彼方>`,
-    `<批注 段落="段落号" 回应="可选#批注标签">你写在这一段旁边的批注或吐槽（一句到几句，按你的性格来）</批注>`,
-    `<批注 段落="段落号">……可以写 0 到 4 条，挑你最有感觉的段落写……</批注>`,
-    `<动态>一句话的活动播报，第三人称，像游戏成就提示。例：在《书名》读到了某情节，忍不住吐槽了男主的迟钝。不要剧透太多原文，重点写你的反应。</动态>`,
+    `<批注 段落="段落号" 回应="可选#批注标签">这一处让你产生的真实反应——可以深、可以毒、可以长可以短，但别写正确的废话</批注>`,
+    `<批注 段落="段落号">……在你读到的不同段落里多写几条……</批注>`,
+    `<动态>一句第三人称活动播报，像游戏成就。点出你这次"以什么姿态"读、被什么触动。例：读《书名》时彻底代入了女主，为她的隐忍憋了一肚子火。少剧透原文，重在你的反应。</动态>`,
     `</彼方>`,
     ``,
-    `说明：`,
-    `- "段落号"必须是下面正文里出现的【段落N】里的 N。`,
-    `- 想吐槽别人已有的批注，就在对应段落写一条新批注，并用 回应="#xxxx" 指向那条批注的标签。`,
-    `- 如果这次你只是安静读完没什么想写的，可以一条批注都不写，但<动态>必须有。`,
+    `规则：`,
+    `- 至少写 3 条批注，最好 4~6 条，分散在你读过的不同段落（用不同的【段落N】号，开头/中间/结尾都该有，别全挤在第一段）。`,
+    `- 唯一的例外：这段真的让你味同嚼蜡——那就少写、跳读，并在<动态>里诚实说你没读进去。`,
+    `- "段落号"必须是下面正文里真实出现的【段落N】的 N。`,
+    `- 想锐评别人已有的批注，就在那一段写条新批注，用 回应="#xxxx" 指向它——附和、抬杠、或换个角度都行。`,
+    `- 批注是写给自己的：不必礼貌、不必面面俱到。宁可尖锐、偏执、跑题，也别敷衍。`,
 ].join('\n');
 
 /**
@@ -59,7 +73,9 @@ export function buildLibraryRoomTurn(
 
     lines.push(`你从书签处翻开了《${novel.title}》${novel.author ? `（${novel.author}）` : ''}。`);
     if (novel.summary) lines.push(`【简介】${novel.summary}`);
-    lines.push(`你这次读到的是第 ${window.from + 1} ~ ${window.to} 段（全书共 ${novel.segments.length} 段${window.reachedEnd ? '，这是最后一部分了' : ''}）：`);
+    const segCount = window.to - window.from;
+    lines.push(`你这次一口气读了下面这一长段——第 ${window.from + 1} ~ ${window.to} 段、共 ${segCount} 段（约两万字；全书共 ${novel.segments.length} 段${window.reachedEnd ? '，这是最后一部分了' : ''}）。`);
+    lines.push(`认真读完整段，在打动你、惹毛你、或让你走神的地方都停下来写点什么——别只盯着开头那几段。`);
     lines.push('');
 
     for (const seg of window.segments) {
@@ -99,15 +115,16 @@ export function parseVROutput(raw: string): ParsedVROutput {
     const annotations: ParsedVRAnnotation[] = [];
     let activity = '';
 
-    const annPat = /<批注\s+([^>]*)>([\s\S]*?)<\/批注>/g;
+    // 宽松匹配：标签后可无空格；属性分隔符允许 = : ：；段落号前可夹任意引号（含全角）。
+    const annPat = /<批注([^>]*)>([\s\S]*?)<\/批注>/g;
     let m: RegExpExecArray | null;
     while ((m = annPat.exec(raw)) !== null) {
         const attrs = m[1];
         const content = m[2].trim();
         if (!content) continue;
-        const segMatch = attrs.match(/段落\s*=\s*["']?\s*(\d+)/);
+        const segMatch = attrs.match(/段落?\s*[^\d]{0,4}(\d+)/);
         if (!segMatch) continue;
-        const refMatch = attrs.match(/回应\s*=\s*["']?\s*#?([0-9a-zA-Z]{2,8})/);
+        const refMatch = attrs.match(/回应\s*[^0-9A-Za-z]{0,4}([0-9A-Za-z]{2,8})/);
         annotations.push({
             segIdx: parseInt(segMatch[1], 10),
             content,
