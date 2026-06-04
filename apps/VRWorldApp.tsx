@@ -919,18 +919,27 @@ const PostOfficePanel: React.FC<{ addToast?: (m: string, t?: any) => void; chara
             if (replies.length === 0) { addToast?.('还没有人回你的信', 'info'); setBusy(null); return; }
             const byLetter = new Map<string, RemoteReply[]>();
             replies.forEach(r => { const a = byLetter.get(r.letter_id) || []; a.push(r); byLetter.set(r.letter_id, a); });
+            // 一封漂流信可能被多个陌生人捡到、陆续回信。所以这里"刷新"而不是"一次性领取后释放"：
+            // 把后端当前的全部回复同步到本地（含已留档但还没被角色读封存的），不释放；
+            // 等原作者角色逛到邮局读完、写下感触、封存时才释放后端（见 runSession）。
+            const pending = letters.filter(l => l.box === 'outbox' && l.remoteId && (l.status === 'sent' || l.status === 'archived'));
             const updates: VRLetter[] = [];
-            const releaseIds: string[] = [];
-            for (const l of sentAwaiting) {
-                const rs = l.remoteId ? byLetter.get(l.remoteId) : undefined;
-                if (rs && rs.length) {
+            let newlyArchived = 0, addedReplies = 0;
+            for (const l of pending) {
+                const rs = byLetter.get(l.remoteId!);
+                if (!rs || rs.length === 0) continue;
+                const before = l.repliesReceived?.length || 0;
+                if (rs.length > before || l.status === 'sent') {
+                    if (l.status === 'sent') newlyArchived++;
+                    addedReplies += Math.max(0, rs.length - before);
                     updates.push({ ...l, status: 'archived', repliesReceived: rs.map(x => ({ pen: x.pen, content: x.content, createdAt: x.created_at })) });
-                    releaseIds.push(l.remoteId!);
                 }
             }
-            if (updates.length) { await DB.saveVRLetters(updates); await PostOffice.release(releaseIds); }
+            if (updates.length) await DB.saveVRLetters(updates);
             await load();
-            addToast?.(updates.length ? `收到 ${updates.length} 封信的回复，已留档` : '回复还没匹配到你的信', 'success');
+            addToast?.(updates.length
+                ? `收到回复（${newlyArchived ? `${newlyArchived} 封新留档` : '已更新'}${addedReplies ? ` · 新增 ${addedReplies} 条` : ''}），等角色去邮局读`
+                : '回复还没匹配到你的信', 'success');
         } catch (e: any) { addToast?.('收取失败：' + (e?.message || '检查网络'), 'error'); } finally { setBusy(null); }
     };
 
@@ -1888,13 +1897,15 @@ const SettingsView: React.FC<{
 
 // ============ 彼方 · API 设置 + 调用记录 ============
 const VRApiSettings: React.FC<{ apiPresets: ApiPreset[]; chatApi: APIConfig; addToast?: (m: string, t?: any) => void }> = ({ apiPresets, chatApi, addToast }) => {
-    const [vrApi, setVr] = useState<APIConfig | null>(() => getVRApi());
-    const [log, setLog] = useState<VRApiCall[]>(() => getVRApiLog());
+    const [vrApi, setVr] = useState<APIConfig | null>(null);
+    const [log, setLog] = useState<VRApiCall[]>([]);
     const [testing, setTesting] = useState(false);
     const [testResult, setTestResult] = useState<string | null>(null);
 
     useEffect(() => {
-        const h = () => setLog(getVRApiLog());
+        void getVRApi().then(setVr);
+        void getVRApiLog().then(setLog);
+        const h = () => { void getVRApiLog().then(setLog); };
         window.addEventListener('vr-api-log', h);
         return () => window.removeEventListener('vr-api-log', h);
     }, []);
@@ -1905,7 +1916,7 @@ const VRApiSettings: React.FC<{ apiPresets: ApiPreset[]; chatApi: APIConfig; add
     const host = (u?: string) => { try { return u ? new URL(u).host : '—'; } catch { return u || '—'; } };
 
     const choose = (cfg: APIConfig | null) => {
-        setVRApi(cfg); setVr(cfg); setTestResult(null);
+        void setVRApi(cfg); setVr(cfg); setTestResult(null);
         addToast?.(cfg ? '已切换彼方 API' : '彼方改为跟随聊天默认', 'success');
     };
 
@@ -1979,7 +1990,7 @@ const VRApiSettings: React.FC<{ apiPresets: ApiPreset[]; chatApi: APIConfig; add
                 <div className="flex items-center gap-1.5 mb-2">
                     <span className="text-[10px] tracking-[0.2em] text-indigo-200/60" style={{ fontFamily: `'Noto Serif SC',serif` }}>调用记录</span>
                     <span className="text-[9.5px] text-white/40 rounded-full px-1.5 leading-tight" style={{ background: 'rgba(255,255,255,.08)' }}>{log.length}{log.length ? ` · 成功${okCount}` : ''}</span>
-                    {log.length > 0 && <button onClick={() => { clearVRApiLog(); setLog([]); }} className="ml-auto text-[10px] text-white/40 hover:text-rose-300/80">清空</button>}
+                    {log.length > 0 && <button onClick={() => { void clearVRApiLog(); setLog([]); }} className="ml-auto text-[10px] text-white/40 hover:text-rose-300/80">清空</button>}
                 </div>
                 {log.length === 0 ? (
                     <p className="text-[10.5px] text-white/35 py-2 text-center">还没有调用。角色每次登入彼方触发的模型调用都会记在这里，方便你对账。</p>

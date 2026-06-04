@@ -27,6 +27,7 @@ import { loadMusicCfgStandalone } from '../../context/MusicContext';
 import { getCharLyricSnippet } from '../charLyricCache';
 import { getRoom, VR_DEFAULT_INTERVAL_MIN } from './constants';
 import { getVRApi, logVRApiCall } from './vrApi';
+import { PostOffice } from './postOffice';
 import { getReadingWindow, getBookmark, buildAnnotation } from './novel';
 import {
     buildVRSystemAddendum, buildLibraryRoomTurn, parseVROutput,
@@ -115,7 +116,7 @@ export async function runVRSession(deps: VRSessionDeps): Promise<VRSessionResult
     if (running.has(char.id)) return { ok: false, reason: 'busy' };
 
     // API 优先级：角色自带覆盖 > 彼方独立 API > 聊天默认
-    const vrGlobalApi = getVRApi();
+    const vrGlobalApi = await getVRApi();
     const vrApi = char.vrState?.api?.baseUrl ? char.vrState.api : (vrGlobalApi?.baseUrl ? vrGlobalApi : apiConfig);
     if (!vrApi.baseUrl) return { ok: false, reason: 'no-api' };
 
@@ -387,6 +388,8 @@ export async function runVRSession(deps: VRSessionDeps): Promise<VRSessionResult
             const parsed = parsePostOfficeReadOutput(aiContent);
             const now = Date.now();
             await DB.saveVRLetter({ ...poReadTarget, status: 'sealed', reaction: { content: parsed.reaction || '', createdAt: now } });
+            // 角色读完并封存 → 现在才释放后端（删除信+回复），在此之前都允许继续累积多方回复
+            if (poReadTarget.remoteId) void PostOffice.release([poReadTarget.remoteId]).catch(() => {});
             await updateCharacter(char.id, { vrState: { ...prevState, currentRoom: 'postoffice', lastActiveAt: Date.now() } });
             activity = parsed.activity || '在邮局读完陌生人的回信，怔了几秒，把信收进了信匣。';
             cardLines = [`「彼方 · ${room.name}」`, nameLine(char.name, activity)];
