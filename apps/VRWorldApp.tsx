@@ -1208,18 +1208,26 @@ const PostOfficePanel: React.FC<{ addToast?: (m: string, t?: any) => void; chara
 
                 {/* 右侧正文 */}
                 <div className="flex-1 min-w-0 overflow-y-auto vr-reader-scroll px-3 py-2.5">
-                    {tab === 'outbox' && (
-                        <>
-                            {outQueued.length === 0 ? <p className="text-[10.5px] text-white/35 leading-relaxed">角色在邮局写的漂流信会排在这里，你确认后一键寄出。也可以自己写一封。寄出时笔名会自动匿名。</p> : (
-                                <>
-                                    <PagedList items={outQueued} perPage={6} render={l => <PendingLetterRow key={l.id} l={l} onMenu={setMenuFor} />} />
-                                    <div className="text-[9.5px] text-white/35 text-right mb-1">今日已寄 {readSendQuota().count}/{PO_DAILY_LIMIT}</div>
-                                    <button onClick={sendOutbox} disabled={!!busy} className="w-full mt-1 rounded-full py-2 text-[12px] font-semibold text-black disabled:opacity-40" style={{ background: 'linear-gradient(120deg,#f3d08a,#e8b75e)' }}>{busy === 'send' ? '寄出中…' : `一键寄出（${outQueued.length}）`}</button>
-                                </>
-                            )}
-                            <button onClick={startCompose} className="w-full mt-1.5 rounded-full py-1.5 text-[11px] text-amber-100/90" style={{ border: '1px solid rgba(220,190,120,.3)' }}>自己写一封新漂流信</button>
-                        </>
-                    )}
+                    {tab === 'outbox' && (() => {
+                        const q = readSendQuota();
+                        const full = q.count >= PO_DAILY_LIMIT;
+                        return (
+                            <>
+                                {/* 寄信日额度：常驻显示，方便随时看还剩几封 */}
+                                <div className="flex items-center justify-between gap-2 text-[10px] mb-2.5 px-2 py-1.5 rounded-lg" style={{ background: 'rgba(255,255,255,.04)' }}>
+                                    <span className="text-white/55">今日已寄 <b className={full ? 'text-red-300' : 'text-amber-200/90'}>{q.count}</b><span className="text-white/35"> / {PO_DAILY_LIMIT}</span></span>
+                                    {q.count > 0 && <span className="text-white/35">约 {quotaResetHours(q.windowStart)} 小时后{full ? '恢复' : '归零'}</span>}
+                                </div>
+                                {outQueued.length === 0 ? <p className="text-[10.5px] text-white/35 leading-relaxed">角色在邮局写的漂流信会排在这里，你确认后一键寄出。也可以自己写一封。寄出时笔名会自动匿名。</p> : (
+                                    <>
+                                        <PagedList items={outQueued} perPage={6} render={l => <PendingLetterRow key={l.id} l={l} onMenu={setMenuFor} />} />
+                                        <button onClick={sendOutbox} disabled={!!busy} className="w-full mt-1 rounded-full py-2 text-[12px] font-semibold text-black disabled:opacity-40" style={{ background: 'linear-gradient(120deg,#f3d08a,#e8b75e)' }}>{busy === 'send' ? '寄出中…' : `一键寄出（${outQueued.length}）`}</button>
+                                    </>
+                                )}
+                                <button onClick={startCompose} className="w-full mt-1.5 rounded-full py-1.5 text-[11px] text-amber-100/90" style={{ border: '1px solid rgba(220,190,120,.3)' }}>自己写一封新漂流信</button>
+                            </>
+                        );
+                    })()}
 
                     {tab === 'reply' && (
                         replyQueued.length === 0 ? <p className="text-[10.5px] text-white/35 leading-relaxed">你亲自写好、还没发出的回信会排在这里。</p> : (
