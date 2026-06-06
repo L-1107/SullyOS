@@ -319,32 +319,39 @@ export async function runVRSession(deps: VRSessionDeps): Promise<VRSessionResult
         } else if (room.id === 'music') {
             // === 听歌房：点歌进队列 + 乐评 + 推进循环队列 ===
             const parsed = parseMusicOutput(aiContent);
-            const state: VRMusicRoomState = musicState || { id: 'state', queue: [], updatedAt: Date.now() };
-            const curSong = state.nowPlaying;
-
-            // 点歌进队列
-            state.queue = state.queue || [];
+            // 角色在 prompt 里听到 / 锐评的那首，绑定开头快照（乐评、卡片都针对它）
+            const curSong = musicState?.nowPlaying;
+            const pick = (parsed.pickIdx !== undefined && pickable[parsed.pickIdx]) ? pickable[parsed.pickIdx] : undefined;
             let queuedLabel: string | undefined;
-            if (parsed.pickIdx !== undefined && pickable[parsed.pickIdx]) {
-                const s = pickable[parsed.pickIdx];
-                state.queue = [...state.queue, { song: s, charId: char.id, charName: char.name }];
-                queuedLabel = `${s.name} - ${s.artists}`;
-            }
-            // 没点歌、队列也空，但角色有歌单 → 自动放一首自己的，
-            // 免得新到访的角色还停在上一个人（甚至已经离开的人）点的歌上。
-            if (state.queue.length === 0 && pickable.length > 0) {
-                const curId = state.nowPlaying?.song.id;
-                const fresh = pickable.filter(s => s.id !== curId);
-                const s = (fresh.length > 0 ? fresh : pickable)[Math.floor(Math.random() * (fresh.length > 0 ? fresh.length : pickable.length))];
-                state.queue = [{ song: s, charId: char.id, charName: char.name }];
-            }
-            // 推进：队列非空则把队首切为正在放（房间随每次到访"往前走"）
-            if (state.queue.length > 0) {
-                const next = state.queue.shift()!;
-                state.nowPlaying = { song: next.song, charId: next.charId, charName: next.charName, since: Date.now() };
-            }
-            state.updatedAt = Date.now();
-            await DB.saveVRMusicRoom(state);
+            let playingNow: VRMusicRoomState['nowPlaying'];
+
+            // 串行化写入：临界区内重新拉取最新房间态，再做点歌/自动放/推进队首，
+            // 杜绝并发 session 各拿旧快照整体写回而丢点歌、覆盖 nowPlaying。
+            await withSharedRoomLock(async () => {
+                const state: VRMusicRoomState = (await DB.getVRMusicRoom()) || { id: 'state', queue: [], updatedAt: Date.now() };
+                state.queue = state.queue || [];
+                // 点歌进队列
+                if (pick) {
+                    state.queue = [...state.queue, { song: pick, charId: char.id, charName: char.name }];
+                    queuedLabel = `${pick.name} - ${pick.artists}`;
+                }
+                // 没点歌、队列也空，但角色有歌单 → 自动放一首自己的，
+                // 免得新到访的角色还停在上一个人（甚至已经离开的人）点的歌上。
+                if (state.queue.length === 0 && pickable.length > 0) {
+                    const curId = state.nowPlaying?.song.id;
+                    const freshSongs = pickable.filter(s => s.id !== curId);
+                    const s = (freshSongs.length > 0 ? freshSongs : pickable)[Math.floor(Math.random() * (freshSongs.length > 0 ? freshSongs.length : pickable.length))];
+                    state.queue = [{ song: s, charId: char.id, charName: char.name }];
+                }
+                // 推进：队列非空则把队首切为正在放（房间随每次到访"往前走"）
+                if (state.queue.length > 0) {
+                    const next = state.queue.shift()!;
+                    state.nowPlaying = { song: next.song, charId: next.charId, charName: next.charName, since: Date.now() };
+                }
+                state.updatedAt = Date.now();
+                await DB.saveVRMusicRoom(state);
+                playingNow = state.nowPlaying;
+            });
 
             // 乐评落入角色音乐人格（continuity）
             if (parsed.review && curSong && char.musicProfile) {
@@ -359,7 +366,6 @@ export async function runVRSession(deps: VRSessionDeps): Promise<VRSessionResult
             await updateCharacter(char.id, { vrState: { ...prevState, currentRoom: 'music', lastActiveAt: Date.now() } });
 
             const songLabel = curSong ? `${curSong.song.name} - ${curSong.song.artists}` : undefined;
-            const playingNow = state.nowPlaying;
             activity = parsed.activity || (
                 curSong ? `在听歌房听着《${curSong.song.name}》晃了一会儿。`
                 : playingNow ? `进了听歌房，放上《${playingNow.song.name}》听了起来。`
