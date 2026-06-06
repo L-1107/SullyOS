@@ -1492,6 +1492,53 @@ const MessageItem = React.memo(({
         return commonLayout(card);
     }
 
+    if (m.type === 'trpg_card') {
+        const t: any = m.metadata?.trpg || {};
+        const gameTitle: string = t.gameTitle || 'TRPG 跑团';
+        const partyNames: string[] = Array.isArray(t.partyNames) ? t.partyNames.filter((n: string) => n && n !== charName) : [];
+        const excerpt: Array<{ speaker?: string; text?: string; role?: string }> = Array.isArray(t.excerpt) ? t.excerpt : [];
+        const card = (
+            <div className="w-72">
+                <div
+                    className="rounded-2xl overflow-hidden border border-purple-300/30 shadow-[0_6px_20px_rgba(70,40,110,0.28)]"
+                    style={{ background: 'linear-gradient(155deg,#2c1c44 0%,#1a1230 100%)' }}
+                >
+                    {/* 头部 */}
+                    <div className="px-3.5 pt-3 pb-2.5 flex items-center gap-2.5 border-b border-white/10">
+                        <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" style={{ background: 'linear-gradient(135deg,#a855f7,#ec4899)' }}>
+                            <svg viewBox="0 0 24 24" fill="none" className="w-4 h-4 text-white"><path d="M12 2 4 6v6c0 5 3.4 8.5 8 10 4.6-1.5 8-5 8-10V6l-8-4Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round"/></svg>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                            <div className="text-[9px] tracking-[0.25em] text-purple-300/80 font-bold uppercase">TRPG · 一起玩的游戏</div>
+                            <div className="text-[13px] text-purple-50 font-semibold truncate font-serif">{gameTitle}</div>
+                        </div>
+                    </div>
+                    {/* 剧情节选 */}
+                    <div className="px-3.5 py-3 space-y-2 max-h-60 overflow-hidden">
+                        {excerpt.length === 0 && <p className="text-[12px] text-purple-200/70 italic">一段冒险剧情</p>}
+                        {excerpt.slice(0, 6).map((e, i) => {
+                            const isGM = e.role === 'gm';
+                            const text = (e.text || '').replace(/^\*|\*$/g, '').trim();
+                            return (
+                                <div key={i} className={`text-[12px] leading-relaxed ${isGM ? 'text-purple-100/90 italic' : 'text-purple-50/95'}`}>
+                                    {!isGM && e.speaker && <span className="text-pink-300/90 font-semibold mr-1">{e.speaker}:</span>}
+                                    <span className={isGM ? 'border-l-2 border-purple-400/40 pl-2 block' : ''}>{text}</span>
+                                </div>
+                            );
+                        })}
+                        {excerpt.length > 6 && <div className="text-[10px] text-purple-300/60 text-center pt-0.5">…共 {excerpt.length} 条剧情</div>}
+                    </div>
+                    {/* 页脚 */}
+                    <div className="px-3.5 py-2 border-t border-white/10 flex items-center justify-between">
+                        <span className="text-[9px] text-purple-300/70 italic truncate">{partyNames.length ? `与 ${partyNames.join('、')} 同行` : '我们的冒险'}</span>
+                        <span className="text-[9px] text-pink-200/80 font-bold tracking-wide shrink-0 ml-2">＋共同回忆</span>
+                    </div>
+                </div>
+            </div>
+        );
+        return commonLayout(card);
+    }
+
     if (m.type === 'news_card') {
         const md: any = m.metadata || {};
         const title: string = md.title || '热点';

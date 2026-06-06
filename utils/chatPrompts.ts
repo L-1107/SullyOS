@@ -3,6 +3,7 @@ import { CharacterProfile, UserProfile, Message, Emoji, EmojiCategory, GroupProf
 import { ContextBuilder } from './context';
 import { DB } from './db';
 import { formatLifeSimResetCardForContext } from './lifeSimChatCard';
+import { normalizeMessageContent } from './messageFormat';
 import { computeCurrentListening, getCurrentSlot } from './charMusicSchedule';
 import { getCharLyricSnippet } from './charLyricCache';
 import { MusicCfg, loadMusicCfgStandalone } from '../context/MusicContext';
@@ -33,6 +34,7 @@ function summarizeGroupMsgContent(m: Message): string {
         case 'mcd_card': return '[麦当劳点餐]';
         case 'html_card': return '[HTML卡片]';
         case 'news_card': return '[新闻卡片]';
+        case 'trpg_card': return `[TRPG游戏片段${meta.trpg?.gameTitle ? '：《' + meta.trpg.gameTitle + '》' : ''}]`;
         default: {
             const c = typeof m.content === 'string' ? m.content : '';
             // 兜底：任何 data:/http(s) 链接都不内联，防止异常/未来新增类型漏网
@@ -909,8 +911,13 @@ ${xhsEnabled ? `${[notionEnabled, feishuEnabled, notionNotesEnabled].filter(Bool
                         content = `${timeStr} [系统卡片]`;
                     }
                 }
+                else if ((m.type as string) === 'trpg_card') {
+                    // TRPG 跑团片段：从游戏多选转发进来的剧情。复用 normalizeMessageContent
+                    // 把完整节选翻成文本，让角色"记得"和用户一起玩游戏时发生了什么。
+                    content = `${timeStr} ${normalizeMessageContent(m, char?.name || '你', userProfile?.name || '用户')}`;
+                }
                 else content = `${timeStr} ${sourceTag} ${content}`;
-                
+
                 return { role: m.role, content };
             }),
             historySlice // Return original slice for Quote lookup

@@ -211,6 +211,10 @@ const GameApp: React.FC = () => {
     const [isSummarizing, setIsSummarizing] = useState(false); // 自动总结全屏反馈
     const [showArchived, setShowArchived] = useState(false);    // 已归档剧情折叠展开
     const [expandedSummaries, setExpandedSummaries] = useState<Set<string>>(new Set()); // 每段总结对应原文的展开状态
+    // 长按多选 → 转发到聊天
+    const [selectMode, setSelectMode] = useState(false);
+    const [selectedLogIds, setSelectedLogIds] = useState<Set<string>>(new Set());
+    const [isForwarding, setIsForwarding] = useState(false);
     const [lastRoll, setLastRoll] = useState<number | null>(null); // 最近一次自动骰点结果（瞬时展示）
     const [lastTokenUsage, setLastTokenUsage] = useState<{prompt?: number, completion?: number, total: number} | null>(null);
     const [totalTokensUsed, setTotalTokensUsed] = useState(0);
@@ -221,6 +225,8 @@ const GameApp: React.FC = () => {
     // 长按删除存档卡片
     const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const longPressFired = useRef(false);
+    // 长按日志进入多选
+    const logPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // UI Toggles
     const [showSystemMenu, setShowSystemMenu] = useState(false);
@@ -1047,6 +1053,70 @@ Output: A concise summary in Chinese (e.g. "探索了地牢并击败了史莱姆
         }
     };
 
+    // --- 长按多选日志 → 转发到聊天 ---
+    const startLogPress = (logId: string) => {
+        if (selectMode) return;
+        cancelLogPress();
+        logPressTimer.current = setTimeout(() => {
+            if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(30);
+            setSelectMode(true);
+            setSelectedLogIds(new Set([logId]));
+        }, 500);
+    };
+    const cancelLogPress = () => {
+        if (logPressTimer.current) { clearTimeout(logPressTimer.current); logPressTimer.current = null; }
+    };
+    const toggleSelectLog = (logId: string) => {
+        setSelectedLogIds(prev => {
+            const n = new Set(prev);
+            n.has(logId) ? n.delete(logId) : n.add(logId);
+            return n;
+        });
+    };
+    const exitSelectMode = () => {
+        setSelectMode(false);
+        setSelectedLogIds(new Set());
+    };
+
+    // 把选中的剧情打包成 trpg_card，转发进每个参与角色的聊天上下文
+    const handleForwardToChat = async () => {
+        if (!activeGame || selectedLogIds.size === 0) return;
+        setIsForwarding(true);
+        try {
+            const players = characters.filter(c => activeGame.playerCharIds.includes(c.id));
+            // 按剧情原顺序取选中的日志（排除纯系统占位）
+            const selected = activeGame.logs.filter(l => selectedLogIds.has(l.id) && l.role !== 'system');
+            const excerpt = selected.map(l => ({
+                role: l.role,
+                speaker: l.role === 'gm' ? 'GM' : (l.speakerName || (l.role === 'player' ? userProfile.name : '')),
+                text: l.content,
+            }));
+            const trpg = {
+                gameTitle: activeGame.title,
+                theme: activeGame.theme,
+                userName: userProfile.name,
+                partyNames: players.map(p => p.name),
+                excerpt,
+                count: excerpt.length,
+            };
+            for (const p of players) {
+                await DB.saveMessage({
+                    charId: p.id,
+                    role: 'user',
+                    type: 'trpg_card',
+                    content: `[TRPG游戏片段]《${activeGame.title}》`,
+                    metadata: { trpg },
+                });
+            }
+            addToast(`已转发到 ${players.length} 位角色的聊天`, 'success');
+            exitSelectMode();
+        } catch (e: any) {
+            addToast(`转发失败: ${e.message}`, 'error');
+        } finally {
+            setIsForwarding(false);
+        }
+    };
+
     const handleDeleteGame = (e: React.MouseEvent, id: string) => {
         e.stopPropagation();
         setDeleteConfirmId(id);
@@ -1560,18 +1630,17 @@ Output: A concise summary in Chinese (e.g. "探索了地牢并击败了史莱姆
                     const isCharacter = log.role === 'character';
                     const charInfo = isCharacter ? activePlayers.find(p => p.name === log.speakerName) : null;
 
+                    let inner: React.ReactNode;
                     if (isSystem) {
-                        return (
-                            <div key={log.id || i} className="flex flex-col items-center my-4 animate-fade-in gap-1 group">
+                        inner = (
+                            <div className="flex flex-col items-center my-4 animate-fade-in gap-1 group">
                                 <span className="text-[10px] opacity-50 border-b border-dashed border-current pb-0.5 font-mono">{log.content}</span>
                                 <button onClick={() => handleRollbackLog(i)} className="text-[9px] text-red-400 opacity-0 group-hover:opacity-100 transition-opacity hover:underline">回退到此处</button>
                             </div>
                         );
-                    }
-
-                    if (isGM) {
-                        return (
-                            <div key={log.id || i} className="animate-fade-in my-4 group relative">
+                    } else if (isGM) {
+                        inner = (
+                            <div className="animate-fade-in my-4 group relative">
                                 <div className={`p-5 rounded-lg border-2 ${theme.border} ${theme.cardBg} shadow-sm relative mx-auto w-full text-sm`}>
                                     <div className="absolute -top-3 left-4 bg-inherit px-2 text-[10px] font-bold uppercase tracking-widest opacity-80 border border-inherit rounded">Game Master</div>
                                     <GameMarkdown content={log.content} theme={theme} customStyle={uiSettings} />
@@ -1579,12 +1648,9 @@ Output: A concise summary in Chinese (e.g. "探索了地牢并击败了史莱姆
                                 <button onClick={() => handleRollbackLog(i)} className="absolute top-2 right-2 text-[9px] bg-red-900/50 text-red-200 px-2 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-800">Rollback</button>
                             </div>
                         );
-                    }
-
-                    // Character Log
-                    if (isCharacter && charInfo) {
-                        return (
-                            <div key={log.id || i} className="flex gap-3 animate-slide-up group relative">
+                    } else if (isCharacter && charInfo) {
+                        inner = (
+                            <div className="flex gap-3 animate-slide-up group relative">
                                 <img src={charInfo.avatar} className={`w-10 h-10 rounded-full object-cover border ${theme.border} shrink-0 mt-1`} />
                                 <div className="flex flex-col max-w-[85%]">
                                     <span className="text-[10px] font-bold opacity-60 mb-1 ml-1">{charInfo.name}</span>
@@ -1595,23 +1661,46 @@ Output: A concise summary in Chinese (e.g. "探索了地牢并击败了史莱姆
                                 </div>
                             </div>
                         );
+                    } else {
+                        // Player (User) Log
+                        inner = (
+                            <div className="flex flex-col items-end animate-slide-up group relative">
+                                <div className="flex items-center gap-2 mb-1">
+                                    <span className={`text-[10px] font-bold opacity-60`}>{log.speakerName}</span>
+                                    {log.diceRoll && (
+                                        <span className="text-[10px] bg-white/20 px-1.5 rounded text-yellow-500 font-mono">
+                                            <DiceFive size={12} weight="fill" className="inline" /> {log.diceRoll.result}
+                                        </span>
+                                    )}
+                                </div>
+                                <div className={`px-4 py-2 rounded-2xl rounded-tr-none text-sm bg-orange-600 text-white shadow-md max-w-[85%]`}>
+                                    {log.content}
+                                </div>
+                                <button onClick={() => handleRollbackLog(i)} className="mt-1 text-[9px] text-red-400 opacity-0 group-hover:opacity-100 transition-opacity hover:underline">回退</button>
+                            </div>
+                        );
                     }
 
-                    // Player (User) Log
+                    const selected = selectedLogIds.has(log.id);
                     return (
-                        <div key={log.id || i} className="flex flex-col items-end animate-slide-up group relative">
-                            <div className="flex items-center gap-2 mb-1">
-                                <span className={`text-[10px] font-bold opacity-60`}>{log.speakerName}</span>
-                                {log.diceRoll && (
-                                    <span className="text-[10px] bg-white/20 px-1.5 rounded text-yellow-500 font-mono">
-                                        <DiceFive size={12} weight="fill" className="inline" /> {log.diceRoll.result}
-                                    </span>
-                                )}
+                        <div
+                            key={log.id || i}
+                            onPointerDown={() => startLogPress(log.id)}
+                            onPointerUp={cancelLogPress}
+                            onPointerLeave={cancelLogPress}
+                            onPointerCancel={cancelLogPress}
+                            onClick={() => { if (selectMode) toggleSelectLog(log.id); }}
+                            onContextMenu={(e) => { if (selectMode) e.preventDefault(); }}
+                            className={`relative ${selectMode ? `cursor-pointer rounded-xl px-1 transition-all ${selected ? 'ring-2 ring-purple-400 bg-purple-500/10' : 'hover:bg-white/[0.03]'}` : ''}`}
+                        >
+                            {selectMode && (
+                                <div className={`absolute left-0 top-1/2 -translate-y-1/2 z-30 w-5 h-5 rounded-full border-2 flex items-center justify-center ${selected ? 'bg-purple-500 border-purple-400' : 'border-white/40 bg-black/40'}`}>
+                                    {selected && <svg viewBox="0 0 20 20" fill="currentColor" className="w-3 h-3 text-white"><path fillRule="evenodd" d="M16.7 5.3a1 1 0 0 1 0 1.4l-7.5 7.5a1 1 0 0 1-1.4 0l-3.5-3.5a1 1 0 1 1 1.4-1.4l2.8 2.79 6.8-6.79a1 1 0 0 1 1.4 0Z" clipRule="evenodd"/></svg>}
+                                </div>
+                            )}
+                            <div className={selectMode ? 'pointer-events-none select-none pl-5' : ''}>
+                                {inner}
                             </div>
-                            <div className={`px-4 py-2 rounded-2xl rounded-tr-none text-sm bg-orange-600 text-white shadow-md max-w-[85%]`}>
-                                {log.content}
-                            </div>
-                            <button onClick={() => handleRollbackLog(i)} className="mt-1 text-[9px] text-red-400 opacity-0 group-hover:opacity-100 transition-opacity hover:underline">回退</button>
                         </div>
                     );
                 })}
@@ -1620,9 +1709,24 @@ Output: A concise summary in Chinese (e.g. "探索了地牢并击败了史莱姆
                 {/* [FIX] Removed logsEndRef usage */}
             </div>
 
+            {/* 多选转发操作栏 */}
+            {selectMode && (
+                <div className={`p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] border-t ${theme.border} bg-black/50 backdrop-blur shrink-0 z-20 flex items-center gap-3 animate-slide-down`}>
+                    <button onClick={exitSelectMode} className="px-4 h-11 rounded-xl border border-white/15 text-sm font-bold text-white/70 active:scale-95 transition-transform">取消</button>
+                    <span className="text-xs text-white/50 flex-1 text-center">已选 {selectedLogIds.size} 条 · 长按可多选剧情</span>
+                    <button
+                        onClick={handleForwardToChat}
+                        disabled={selectedLogIds.size === 0 || isForwarding}
+                        className="px-5 h-11 rounded-xl bg-gradient-to-r from-purple-500 to-pink-500 text-white text-sm font-bold active:scale-95 transition-transform disabled:opacity-40 flex items-center gap-2 shadow-lg shadow-purple-500/20"
+                    >
+                        {isForwarding ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> 转发中...</> : '转发到聊天'}
+                    </button>
+                </div>
+            )}
+
             {/* Controls */}
             {/* Added pb-[env(safe-area-inset-bottom)] to ensure content clears home bar on full screen devices */}
-            <div className={`p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] border-t ${theme.border} bg-opacity-90 backdrop-blur shrink-0 z-20 transition-colors duration-500`}>
+            <div className={`p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] border-t ${theme.border} bg-opacity-90 backdrop-blur shrink-0 z-20 transition-colors duration-500 ${selectMode ? 'hidden' : ''}`}>
                 
                 {/* AI Suggested Options Area */}
                 {activeGame.suggestedActions && activeGame.suggestedActions.length > 0 && !isTyping && (
