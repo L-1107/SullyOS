@@ -80,7 +80,11 @@
   .title-en { font-size: 7px; letter-spacing: 2px; color: var(--text-soft); margin-top: 1px; }
 
   .stage {
-    flex: 0 0 auto; min-height: 0; display: flex; align-items: center; justify-content: center;
+    /* 撑满 header/action-row/panel 之间的剩余空间，把 panel 推到 .app 底，
+       否则手机模式下 children flex-start 排列，panel 上面的人物区只占自然高度，
+       panel 之后会剩一大块空白，看起来像"夸张的 safe area"把 header 顶飞。
+       character-frame 自己有 max-width: 220px + aspect-ratio: 1/1，stage 拉大不会变形。 */
+    flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center;
     padding: 2px 10px; position: relative;
   }
   .character-frame {
