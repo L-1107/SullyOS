@@ -133,32 +133,8 @@ const CHAT_LAYOUT_COMBOS: { name: string; desc: string; config: Partial<OSTheme>
 ];
 
 // --- 桌面整机风格（皮肤）---
-// SVG → data URI。关键：除了 encodeURIComponent，还要把括号也编码掉——否则 SVG 内的
-// fill="url(#id)" / filter="url(#id)" 里的 ')' 会在 CSS background-image: url(data:...) 中
-// 提前闭合外层 url()，导致整张壁纸失效（之前壁纸一直没生效就是栽在这）。
-const svgToDataUri = (svg: string) =>
-  `data:image/svg+xml,${encodeURIComponent(svg).replace(/\(/g, '%28').replace(/\)/g, '%29')}`;
-
-// 动森风壁纸：柔和梦幻的小岛清晨。暖阳 + 景深模糊的远山草坡 + 光斑 + 飘叶，整张内联 SVG。
-const ACNH_WALLPAPER = svgToDataUri(
-  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 800" preserveAspectRatio="xMidYMid slice">`
-  + `<defs><linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">`
-  + `<stop offset="0" stop-color="#F8E3CE"/><stop offset="0.32" stop-color="#EDE6D2"/>`
-  + `<stop offset="0.55" stop-color="#CDE7DA"/><stop offset="0.78" stop-color="#AEDD9C"/>`
-  + `<stop offset="1" stop-color="#8FCB6B"/></linearGradient>`
-  + `<filter id="soft" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="18"/></filter>`
-  + `<filter id="soft2"><feGaussianBlur stdDeviation="8"/></filter></defs>`
-  + `<rect width="400" height="800" fill="url(#sky)"/>`
-  + `<circle cx="300" cy="130" r="92" fill="#FFE9C2" opacity="0.7" filter="url(#soft)"/>`
-  + `<ellipse cx="120" cy="540" rx="220" ry="90" fill="#BFE3A0" opacity="0.8" filter="url(#soft)"/>`
-  + `<ellipse cx="320" cy="580" rx="200" ry="100" fill="#A9D98A" opacity="0.85" filter="url(#soft)"/>`
-  + `<ellipse cx="200" cy="770" rx="320" ry="150" fill="#86C45E" opacity="0.9" filter="url(#soft)"/>`
-  + `<g filter="url(#soft2)"><circle cx="70" cy="220" r="16" fill="#ffffff" opacity="0.5"/>`
-  + `<circle cx="340" cy="300" r="12" fill="#ffffff" opacity="0.45"/><circle cx="150" cy="120" r="10" fill="#ffffff" opacity="0.5"/>`
-  + `<circle cx="250" cy="430" r="14" fill="#FFF6D8" opacity="0.4"/></g>`
-  + `<g opacity="0.5" fill="#7FB85A"><path d="M50 360 q30 -18 42 6 q-30 18 -42 -6Z"/>`
-  + `<path d="M330 470 q26 -16 38 5 q-27 16 -38 -5Z"/></g></svg>`
-);
+// 动森壁纸：NookPhone 同款奶油底（#F8F4E8），底部极淡草色透气。纯 CSS 渐变，让彩色图标平铺更跳。
+const ACNH_WALLPAPER = 'linear-gradient(180deg, #F8F4E8 0%, #F3EFDD 58%, #E6EECE 100%)';
 
 const DESKTOP_SKINS: { id: string; name: string; desc: string; swatch: string; config: Partial<OSTheme> }[] = [
   {

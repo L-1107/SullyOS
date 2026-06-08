@@ -32,29 +32,16 @@ const DesktopClock = React.memo(() => {
     const hh = virtualTime.hours.toString().padStart(2, '0');
     const mm = virtualTime.minutes.toString().padStart(2, '0');
 
-    // 动森彩蛋：NookPhone「居民代表」时钟 HUD（配色对齐 animal-island-ui 的 Time 组件）
+    // 动森彩蛋：NookPhone 主屏时钟（极简，对齐参考图：浅色时间 + 大号星期，居中）
     if (theme.skin === 'animalcrossing') {
+        const weekdayTitle = dayName.charAt(0) + dayName.slice(1).toLowerCase();
         return (
-            <div className="mt-6 mb-4 animate-fade-in" style={{ color: '#794f27' }}>
-                <div className="flex items-center gap-1.5 mb-1 text-[13px] font-extrabold tracking-wide">
-                    <span>🍃</span><span>{greeting}, Resident</span>
+            <div className="mt-7 mb-7 text-center animate-fade-in select-none">
+                <div className="text-[1.9rem] font-extrabold tracking-[2px] leading-none" style={{ color: '#cfcab2' }}>
+                    {hh}<span className="animate-pulse">:</span>{mm}
                 </div>
-                <div className="text-[10px] font-bold tracking-[0.18em] uppercase mb-2.5" style={{ color: '#9f927d' }}>Resident Representative</div>
-                <div className="flex items-stretch gap-5 rounded-[18px] px-6 py-4"
-                    style={{
-                        background: 'linear-gradient(180deg,#ffffff 0%,#f8f8f0 100%)',
-                        border: '3px solid #d4cfc3',
-                        boxShadow: '0 8px 24px 0 rgba(61,52,40,0.14)',
-                    }}>
-                    <div className="flex flex-col justify-center pr-5" style={{ borderRight: '3px solid rgba(159,146,125,0.35)' }}>
-                        <span className="text-[14px] font-black text-[#6fba2c] tracking-[1.5px] uppercase">{dayName.slice(0, 3)}</span>
-                        <span className="text-[22px] font-extrabold text-[#8b7355] leading-tight">{dateNum} {monthName}</span>
-                    </div>
-                    <div className="flex-1 flex items-center justify-end">
-                        <span className="text-[3rem] leading-none font-black text-[#8b7355] tracking-[2px]" style={{ fontFeatureSettings: '"tnum"' }}>
-                            {hh}<span className="mx-0.5 animate-pulse">:</span>{mm}
-                        </span>
-                    </div>
+                <div className="text-[2.6rem] font-extrabold leading-tight mt-1" style={{ color: '#725C4E' }}>
+                    {weekdayTitle}
                 </div>
             </div>
         );
@@ -199,13 +186,15 @@ const CharacterWidget = React.memo(({
 // 3. Grid Page Component
 const AppGridPage = React.memo(({
     apps,
-    openApp
+    openApp,
+    acnh = false,
 }: {
     apps: typeof INSTALLED_APPS,
-    openApp: (id: AppID) => void
+    openApp: (id: AppID) => void,
+    acnh?: boolean,
 }) => {
     return (
-        <div className="grid grid-cols-4 gap-y-6 gap-x-2 place-items-center animate-fade-in relative">
+        <div className={`grid place-items-center animate-fade-in relative ${acnh ? 'grid-cols-3 gap-y-7 gap-x-3' : 'grid-cols-4 gap-y-6 gap-x-2'}`}>
              {apps.map(app => (
                  <div
                     key={app.id}
@@ -214,6 +203,7 @@ const AppGridPage = React.memo(({
                      <AppIcon
                         app={app}
                         onClick={() => openApp(app.id)}
+                        size={acnh ? 'lg' : 'md'}
                      />
                  </div>
              ))}
@@ -594,10 +584,13 @@ const Launcher: React.FC = () => {
     <div className="h-full w-full flex flex-col relative z-10 overflow-hidden font-sans select-none">
       
       {/* Visual Elements (Decorative Background - Static, low-cost gradients instead of blur) */}
+      {/* 动森模式跳过：这层冷蓝光斑会污染奶油底 */}
+      {!acnh && (
       <div className="absolute inset-0 pointer-events-none">
           <div className="absolute -top-20 -right-20 w-80 h-80 rounded-full" style={{ background: 'radial-gradient(circle, rgba(255,255,255,0.05) 0%, transparent 70%)' }}></div>
           <div className="absolute -bottom-20 -left-20 w-80 h-80 rounded-full" style={{ background: 'radial-gradient(circle, rgba(59,130,246,0.08) 0%, transparent 70%)' }}></div>
       </div>
+      )}
 
       {/* Scrollable Content Layer */}
       {/* UPDATE: Added snap-always to children to ensure one-page-at-a-time scrolling on mobile swipe */}
@@ -632,15 +625,18 @@ const Launcher: React.FC = () => {
                       // Page 1 (original): Clock + Chat + 4x2 App Grid
                       <>
                         <DesktopClock />
-                        <CharacterWidget
-                            char={widgetChar}
-                            unreadCount={widgetUnread}
-                            lastMessage={lastMessage}
-                            onClick={() => openApp(AppID.Chat)}
-                            contentColor={contentColor}
-                        />
+                        {/* 动森模式不显示角色卡，保持 NookPhone 主屏的「时钟+网格」干净布局 */}
+                        {!acnh && (
+                            <CharacterWidget
+                                char={widgetChar}
+                                unreadCount={widgetUnread}
+                                lastMessage={lastMessage}
+                                onClick={() => openApp(AppID.Chat)}
+                                contentColor={contentColor}
+                            />
+                        )}
                         <div className="flex-1">
-                            <AppGridPage apps={pageApps} openApp={openApp} />
+                            <AppGridPage apps={pageApps} openApp={openApp} acnh={acnh} />
                         </div>
                       </>
                   ) : idx === 1 ? (
@@ -730,6 +726,7 @@ const Launcher: React.FC = () => {
                           <AppGridPage
                                 apps={pageApps}
                                 openApp={openApp}
+                                acnh={acnh}
                           />
                           <div className="flex-1"></div>
                       </div>
@@ -768,7 +765,7 @@ const Launcher: React.FC = () => {
       >
            <div
              className={`rounded-[1.75rem] px-4 py-3 flex gap-3 sm:gap-6 items-center mx-auto max-w-full justify-between overflow-x-auto no-scrollbar transform-gpu ${acnh ? '' : 'bg-white/30 border border-white/25 shadow-[0_8px_40px_rgba(0,0,0,0.22),inset_0_1px_0_rgba(255,255,255,0.08)]'}`}
-             style={acnh ? { background: 'rgb(247,243,223)', border: '2px solid #e8e2d6', boxShadow: '0 8px 24px 0 rgba(61,52,40,0.16)' } : undefined}
+             style={acnh ? { background: 'transparent' } : undefined}
            >
                {dockAppsConfig.map(app => (
                    <div key={app.id} className="relative">

@@ -44,22 +44,18 @@ const AppIcon: React.FC<AppIconProps> = React.memo(({ app, onClick, size = 'md',
         className="flex flex-col items-center gap-1.5 group relative active:scale-95 transition-transform duration-200"
         style={{ WebkitTapHighlightColor: 'transparent' }}
       >
-        {/* NookPhone 圆角方块瓦片（圆角 ~36%，参照 appItem 123px/radius 45px）+ 动森填充图标 */}
+        {/* NookPhone 圆角方块瓦片：纯平面，无边框/无阴影/无高光（对齐参考图） */}
         <div
-          className={`${sizeClasses} relative flex items-center justify-center
-            border-2 border-white/60 shadow-[0_4px_10px_rgba(94,72,59,0.25)] overflow-hidden`}
+          className={`${sizeClasses} relative flex items-center justify-center overflow-hidden`}
           style={{ backgroundColor: tileColor, borderRadius: '34%' }}
         >
-          {/* 顶部柔光，营造塑料圆钮质感 */}
-          <div className="absolute inset-x-0 top-0 h-1/2 pointer-events-none"
-            style={{ background: 'linear-gradient(to bottom, rgba(255,255,255,0.32), transparent)', borderRadius: 'inherit' }} />
-          <div className="w-[64%] h-[64%] relative">
+          <div className="w-[66%] h-[66%] relative">
             {getAcnhIcon(app.id)}
           </div>
         </div>
         {!hideLabel && (
           <span
-            className={`${size === 'sm' ? 'text-[8.5px] tracking-wide' : 'text-[10px] tracking-wider'} font-bold text-shadow-sm max-w-full truncate ${variant === 'dock' ? 'hidden' : 'block'}`}
+            className={`${size === 'sm' ? 'text-[9px] tracking-wide' : 'text-[10.5px] tracking-wide'} font-bold max-w-full truncate ${variant === 'dock' ? 'hidden' : 'block'}`}
             style={{ color: contentColor }}
           >
             {app.name}

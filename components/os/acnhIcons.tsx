@@ -8,8 +8,7 @@ const CREAM = '#FBF7EA';
 const BROWN = '#5E483B';
 
 const wrap = (children: React.ReactNode) => (
-  <svg viewBox="0 0 100 100" className="w-full h-full"
-    style={{ filter: 'drop-shadow(0 1.5px 1px rgba(94,72,59,0.28))' }}>
+  <svg viewBox="0 0 100 100" className="w-full h-full">
     {children}
   </svg>
 );
