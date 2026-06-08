@@ -182,6 +182,36 @@ const DESKTOP_SKINS: { id: string; name: string; desc: string; swatch: string; c
   },
 ];
 
+// 动森叶子贴纸：切换动森皮肤时自动撒到桌面。用 acnh-leaf- 前缀标记，便于切回时单独清掉而不动用户自己的装饰。
+const ACNH_LEAF_PREFIX = 'acnh-leaf-';
+const acnhLeafSvg = (fill: string, vein: string) => `data:image/svg+xml,${encodeURIComponent(
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">`
+  + `<path d="M50 8 C78 20 88 50 78 82 C74 92 60 96 50 92 C40 96 26 92 22 82 C12 50 22 20 50 8Z" fill="${fill}"/>`
+  + `<path d="M50 14 L50 88" stroke="${vein}" stroke-width="3" fill="none" opacity="0.5"/>`
+  + `<path d="M50 35 Q66 32 74 42" stroke="${vein}" stroke-width="2" fill="none" opacity="0.4"/>`
+  + `<path d="M50 52 Q34 49 26 59" stroke="${vein}" stroke-width="2" fill="none" opacity="0.4"/></svg>`
+)}`;
+const ACNH_LEAF_VARIANTS = [
+  acnhLeafSvg('#7CBA4C', '#4d7a2a'),
+  acnhLeafSvg('#9ED25F', '#5c8a30'),
+  acnhLeafSvg('#5FAE6E', '#356b3f'),
+];
+const ACNH_LEAF_LAYOUT: { x: number; y: number; scale: number; rotation: number; opacity: number; flip?: boolean }[] = [
+  { x: 12, y: 14, scale: 0.8, rotation: -20, opacity: 0.9 },
+  { x: 86, y: 17, scale: 0.7, rotation: 30, opacity: 0.85, flip: true },
+  { x: 17, y: 80, scale: 0.9, rotation: 15, opacity: 0.9 },
+  { x: 88, y: 78, scale: 0.72, rotation: -25, opacity: 0.85 },
+  { x: 50, y: 91, scale: 0.6, rotation: 8, opacity: 0.8 },
+  { x: 82, y: 48, scale: 0.55, rotation: -40, opacity: 0.7, flip: true },
+];
+const buildAcnhLeaves = (): DesktopDecoration[] => ACNH_LEAF_LAYOUT.map((p, i) => ({
+  id: `${ACNH_LEAF_PREFIX}${i}`,
+  type: 'preset',
+  content: ACNH_LEAF_VARIANTS[i % ACNH_LEAF_VARIANTS.length],
+  x: p.x, y: p.y, scale: p.scale, rotation: p.rotation, opacity: p.opacity,
+  zIndex: 5 + i, flip: p.flip,
+}));
+
 const ChatAppearanceEditor: React.FC<{ theme: OSTheme; updateTheme: (u: Partial<OSTheme>) => void }> = ({ theme, updateTheme }) => {
     const avatarShape = theme.chatAvatarShape || 'circle';
     const avatarSize = theme.chatAvatarSize || 'medium';
@@ -788,6 +818,16 @@ const Appearance: React.FC = () => {
       addToast('网络字体已应用', 'success');
   };
 
+  // 切换桌面整机风格：动森模式自动撒叶子贴纸（保留用户已有装饰），切回默认时只清掉 acnh 叶子。
+  const applyDesktopSkin = (skin: { id: string; name: string; config: Partial<OSTheme> }) => {
+      const existing = (theme.desktopDecorations || []).filter(d => !d.id.startsWith(ACNH_LEAF_PREFIX));
+      const desktopDecorations = skin.id === 'animalcrossing'
+          ? [...existing, ...buildAcnhLeaves()]
+          : existing;
+      updateTheme({ ...skin.config, desktopDecorations });
+      addToast(`已切换到「${skin.name}」`, 'success');
+  };
+
   const handleIconUpload = async (file: File) => {
       if (!selectedAppId) return;
       try {
@@ -831,7 +871,7 @@ const Appearance: React.FC = () => {
                             return (
                                 <button
                                     key={skin.id}
-                                    onClick={() => { updateTheme(skin.config); addToast(`已切换到「${skin.name}」`, 'success'); }}
+                                    onClick={() => applyDesktopSkin(skin)}
                                     className={`relative text-left rounded-2xl p-3 border-2 transition-all active:scale-[0.98] ${active ? 'border-primary ring-2 ring-primary/20' : 'border-slate-200 hover:border-slate-300'}`}
                                 >
                                     <div className="h-16 w-full rounded-xl mb-2 shadow-inner" style={{ background: skin.swatch }} />
