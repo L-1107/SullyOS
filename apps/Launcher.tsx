@@ -32,16 +32,20 @@ const DesktopClock = React.memo(() => {
     const hh = virtualTime.hours.toString().padStart(2, '0');
     const mm = virtualTime.minutes.toString().padStart(2, '0');
 
-    // 动森彩蛋：NookPhone 主屏时钟（极简，对齐参考图：浅色时间 + 大号星期，居中）
+    // 动森彩蛋：NookPhone 主屏时钟 —— 问候 + 大号时间(主角) + 星期·日期
     if (theme.skin === 'animalcrossing') {
         const weekdayTitle = dayName.charAt(0) + dayName.slice(1).toLowerCase();
+        const monthTitle = monthName.charAt(0) + monthName.slice(1).toLowerCase();
         return (
-            <div className="mt-7 mb-7 text-center animate-fade-in select-none">
-                <div className="text-[1.9rem] font-extrabold tracking-[2px] leading-none" style={{ color: '#cfcab2' }}>
-                    {hh}<span className="animate-pulse">:</span>{mm}
+            <div className="mt-7 mb-5 text-center animate-fade-in select-none">
+                <div className="text-[13px] font-extrabold tracking-wide" style={{ color: '#8a7a5c' }}>
+                    🍃 {greeting}, Resident
                 </div>
-                <div className="text-[2.6rem] font-extrabold leading-tight mt-1" style={{ color: '#725C4E' }}>
-                    {weekdayTitle}
+                <div className="text-[3.5rem] font-extrabold leading-none mt-1.5 tracking-[2px]" style={{ color: '#8b7355' }}>
+                    {hh}<span className="animate-pulse" style={{ color: '#cfcab2' }}>:</span>{mm}
+                </div>
+                <div className="text-[15px] font-bold mt-1.5" style={{ color: '#725C4E' }}>
+                    {weekdayTitle} · {monthTitle} {Number(dateNum)}
                 </div>
             </div>
         );
@@ -109,7 +113,44 @@ const CharacterWidget = React.memo(({
     contentColor: string
 }) => {
     const { theme } = useOS();
-    const acnh = theme.skin === 'animalcrossing'; // 动森彩蛋：奶油木质角色卡
+    const acnh = theme.skin === 'animalcrossing'; // 动森彩蛋：会"说话"的村民卡
+
+    // 动森：村民头像 + AC 对话气泡（显示最近消息，点开聊天）
+    if (acnh) {
+        return (
+            <div className="mb-4 animate-fade-in" onClick={onClick}>
+                <div className="flex items-end gap-2.5 cursor-pointer active:scale-[0.98] transition-transform">
+                    {/* 村民头像（圆角方块 + 白边） */}
+                    <div className="relative w-[60px] h-[60px] shrink-0 rounded-[26%] overflow-hidden bg-[#e8e2d6]"
+                        style={{ border: '3px solid #ffffff', boxShadow: '0 4px 10px -2px rgba(61,52,40,0.28)' }}>
+                        {char?.avatar
+                            ? <img src={char.avatar} className="w-full h-full object-cover" alt="char" loading="lazy" />
+                            : <div className="w-full h-full flex items-center justify-center text-2xl">🍃</div>}
+                        {unreadCount > 0 && (
+                            <div className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-[#fc736d] rounded-full flex items-center justify-center text-[10px] font-bold text-white"
+                                style={{ border: '2px solid #fff' }}>
+                                {unreadCount > 9 ? '9+' : unreadCount}
+                            </div>
+                        )}
+                    </div>
+                    {/* AC 对话气泡 */}
+                    <div className="relative flex-1 min-w-0 mb-1">
+                        <div className="absolute -left-1.5 bottom-3 w-3 h-3 rotate-45"
+                            style={{ background: '#FFFBF2', borderLeft: '2px solid #ece0c8', borderBottom: '2px solid #ece0c8' }} />
+                        <div className="relative rounded-2xl px-3.5 py-2.5"
+                            style={{ background: '#FFFBF2', border: '2px solid #ece0c8', boxShadow: '0 4px 12px -5px rgba(120,90,40,0.25)' }}>
+                            <div className="flex items-center gap-1.5 mb-0.5">
+                                <span className="text-[13px] font-extrabold truncate" style={{ color: '#725d42' }}>{char?.name || 'Resident'}</span>
+                                <span className="text-[11px] leading-none">{unreadCount > 0 ? '💬' : '🍃'}</span>
+                            </div>
+                            <div className="text-[11px] leading-snug line-clamp-2" style={{ color: '#9f8b68' }}>{lastMessage}</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="mb-3 group animate-fade-in">
              <div
@@ -634,16 +675,13 @@ const Launcher: React.FC = () => {
                       // Page 1 (original): Clock + Chat + 4x2 App Grid
                       <>
                         <DesktopClock />
-                        {/* 动森模式不显示角色卡，保持 NookPhone 主屏的「时钟+网格」干净布局 */}
-                        {!acnh && (
-                            <CharacterWidget
-                                char={widgetChar}
-                                unreadCount={widgetUnread}
-                                lastMessage={lastMessage}
-                                onClick={() => openApp(AppID.Chat)}
-                                contentColor={contentColor}
-                            />
-                        )}
+                        <CharacterWidget
+                            char={widgetChar}
+                            unreadCount={widgetUnread}
+                            lastMessage={lastMessage}
+                            onClick={() => openApp(AppID.Chat)}
+                            contentColor={contentColor}
+                        />
                         <div className="flex-1">
                             <AppGridPage apps={pageApps} openApp={openApp} acnh={acnh} />
                         </div>

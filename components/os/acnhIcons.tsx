@@ -147,3 +147,78 @@ const ACNH_ICON_MAP: Partial<Record<AppID, React.ReactNode>> = {
 
 export const getAcnhIcon = (appId: string): React.ReactNode =>
   ACNH_ICON_MAP[appId as AppID] ?? leaf;
+
+// --- 聊天「+」面板动作图标（动森瓦片：彩色圆角方块 + 奶油 glyph）---
+const bagGlyph = <>
+  <path d="M37 35 Q50 27 63 35 C77 46 80 67 69 79 C61 87 39 87 31 79 C20 67 23 46 37 35Z" fill={CREAM} />
+  <path d="M41 31 L59 31 L55 40 L45 40Z" fill={BROWN} />
+  <path d="M50 50 C43 50 39 56 39 63 H61 C61 56 57 50 50 50Z" fill="#F7CD67" />
+  <rect x="46" y="63" width="8" height="3.5" fill={BROWN} /><circle cx="50" cy="70" r="3" fill={BROWN} />
+</>;
+const chatGlyph = <>
+  <path d="M24 24 H76 a15 15 0 0 1 15 15 v13 a15 15 0 0 1 -15 15 H56 l-6 10 -6 -10 H24 a15 15 0 0 1 -15 -15 v-13 a15 15 0 0 1 15 -15Z" fill={CREAM} />
+  <circle cx="32" cy="45.5" r="6" fill={BROWN} /><circle cx="50" cy="45.5" r="6" fill={BROWN} /><circle cx="68" cy="45.5" r="6" fill={BROWN} />
+</>;
+const calGlyph = <>
+  <rect x="22" y="26" width="56" height="54" rx="8" fill={CREAM} />
+  <rect x="22" y="26" width="56" height="16" rx="8" fill="#FC736D" />
+  <rect x="33" y="20" width="6" height="14" rx="3" fill={BROWN} /><rect x="61" y="20" width="6" height="14" rx="3" fill={BROWN} />
+  <circle cx="38" cy="56" r="4" fill={BROWN} /><circle cx="52" cy="56" r="4" fill={BROWN} /><circle cx="66" cy="56" r="4" fill="#B7A98C" />
+</>;
+const handGlyph = <>
+  <circle cx="46" cy="62" r="22" fill={CREAM} />
+  <rect x="38" y="22" width="15" height="40" rx="7.5" fill={CREAM} />
+</>;
+const refreshGlyph = <>
+  <path d="M28 50 A22 22 0 1 1 38 69" fill="none" stroke={CREAM} strokeWidth="8" strokeLinecap="round" />
+  <path d="M22 32 L34 32 L28 46Z" fill={CREAM} />
+</>;
+const slidersGlyph = <>
+  <rect x="22" y="33" width="56" height="6" rx="3" fill={CREAM} /><circle cx="62" cy="36" r="8" fill={CREAM} stroke={BROWN} strokeWidth="3.5" />
+  <rect x="22" y="50" width="56" height="6" rx="3" fill={CREAM} /><circle cx="38" cy="53" r="8" fill={CREAM} stroke={BROWN} strokeWidth="3.5" />
+  <rect x="22" y="67" width="56" height="6" rx="3" fill={CREAM} /><circle cx="66" cy="70" r="8" fill={CREAM} stroke={BROWN} strokeWidth="3.5" />
+</>;
+const bookGlyph2 = <>
+  <path d="M50 30 C42 24 28 24 21 28 V75 C28 71 42 71 50 77 C58 71 72 71 79 75 V28 C72 24 58 24 50 30Z" fill={CREAM} />
+  <path d="M50 30 V77" stroke={BROWN} strokeWidth="3.5" />
+</>;
+
+const burgerGlyph = <>
+  <rect x="24" y="34" width="52" height="11" rx="5.5" fill={CREAM} />
+  <rect x="26" y="47" width="48" height="6" rx="3" fill="#a06a30" />
+  <rect x="24" y="55" width="52" height="11" rx="5.5" fill={CREAM} />
+</>;
+const codeGlyph = <>
+  <path d="M40 36 L26 50 L40 64" stroke={CREAM} strokeWidth="7" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+  <path d="M60 36 L74 50 L60 64" stroke={CREAM} strokeWidth="7" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+  <line x1="55" y1="32" x2="45" y2="68" stroke={CREAM} strokeWidth="6" strokeLinecap="round" />
+</>;
+const leafGlyph = <>
+  <path d="M50 14 C72 24 80 50 70 76 C66 84 56 87 50 84 C44 87 34 84 30 76 C20 50 28 24 50 14Z" fill={CREAM} />
+  <path d="M50 22 V79" stroke={BROWN} strokeWidth="4" strokeLinecap="round" />
+  <path d="M50 42 L65 34 M50 56 L35 48" stroke={BROWN} strokeWidth="3.5" strokeLinecap="round" />
+</>;
+
+const ACTION_TILES: Record<string, { color: string; bbox: [number, number, number, number]; glyph: React.ReactNode }> = {
+  mcd: { color: '#F7CD67', bbox: [24, 34, 76, 66], glyph: burgerGlyph },
+  html: { color: '#B77DEE', bbox: [24, 32, 74, 68], glyph: codeGlyph },
+  thinking: { color: '#889DF0', bbox: [30, 14, 70, 84], glyph: leafGlyph },
+  transfer: { color: '#F7CD67', bbox: [20, 27, 80, 87], glyph: bagGlyph },
+  poke: { color: '#F8A6B2', bbox: [24, 22, 68, 84], glyph: handGlyph },
+  archive: { color: '#B77DEE', bbox: [21, 24, 79, 77], glyph: bookGlyph2 },
+  settings: { color: '#9A835A', bbox: [20, 28, 80, 78], glyph: slidersGlyph },
+  image: { color: '#82D5BB', bbox: [17, 25, 83, 79], glyph: camGlyph('#FC736D') },
+  regenerate: { color: '#889DF0', bbox: [18, 24, 60, 76], glyph: refreshGlyph },
+  proactive: { color: '#8AC68A', bbox: [9, 24, 91, 72], glyph: chatGlyph },
+  schedule: { color: '#FC736D', bbox: [22, 20, 78, 80], glyph: calGlyph },
+};
+
+export const AcnhActionTile: React.FC<{ kind: string }> = ({ kind }) => {
+  const a = ACTION_TILES[kind];
+  if (!a) return null;
+  return (
+    <div className="w-14 h-14 flex items-center justify-center overflow-hidden" style={{ background: a.color, borderRadius: '30%' }}>
+      <div className="w-[66%] h-[66%]">{draw(a.bbox, a.glyph)}</div>
+    </div>
+  );
+};
