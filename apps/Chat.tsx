@@ -13,6 +13,7 @@ import MessageItem from '../components/chat/MessageItem';
 import McdMiniApp from '../components/mcd/McdMiniApp';
 import { PRESET_THEMES, DEFAULT_ARCHIVE_PROMPTS } from '../components/chat/ChatConstants';
 import ChatHeader from '../components/chat/ChatHeaderShell';
+import CharacterEntryTransition from '../components/chat/CharacterEntryTransition';
 import ChatInputArea from '../components/chat/ChatInputArea';
 import ChatModals from '../components/chat/ChatModals';
 import Modal from '../components/os/Modal';
@@ -54,7 +55,8 @@ const Chat: React.FC = () => {
     const [flashMsgId, setFlashMsgId] = useState<number | null>(null);
     // 角色切换/进入时的缓入开关：先 false（透明），下一帧转 true，靠 CSS transition 平滑淡入。
     // 初值 false 让首次打开也是淡入、且不会有"先显示再变透明"的闪烁。
-    const [entered, setEntered] = useState(false);
+    // 角色切换「登场」过场是否显示。切换/进入角色时由 useLayoutEffect 在绘制前置真，覆盖住加载、避免闪到新聊天。
+    const [showEntry, setShowEntry] = useState(false);
     const WINDOW_RADIUS = 25;
     const [input, setInput] = useState('');
     const [showPanel, setShowPanel] = useState<'none' | 'actions' | 'emojis' | 'chars'>('none');
@@ -587,16 +589,10 @@ const Chat: React.FC = () => {
         }
     }, [activeCharacterId, reloadMessages]);
 
-    // 进入/切换角色时重放缓入：先归零透明度，双 rAF 确保"透明态"先绘制一帧，再过渡到可见，
-    // 否则浏览器可能把两次 setState 合批、直接跳到最终态而看不到淡入。
-    useEffect(() => {
-        if (!activeCharacterId) return;
-        setEntered(false);
-        let raf2 = 0;
-        const raf1 = requestAnimationFrame(() => {
-            raf2 = requestAnimationFrame(() => setEntered(true));
-        });
-        return () => { cancelAnimationFrame(raf1); cancelAnimationFrame(raf2); };
+    // 进入/切换角色时触发「登场」过场。useLayoutEffect 在浏览器绘制前置真，
+    // 让过场层先盖住，避免一帧闪到新角色的空聊天界面。
+    useLayoutEffect(() => {
+        if (activeCharacterId) setShowEntry(true);
     }, [activeCharacterId]);
 
     useEffect(() => {
@@ -2019,15 +2015,8 @@ const Chat: React.FC = () => {
     };
     const finalRootClass = acnh ? acnhRootClass : chatRootClass;
     // 动森下强制覆盖角色自定义聊天背景，保证整机一致的彩蛋观感
-    const baseRootStyle = acnh ? acnhRootStyle : chatRootStyle;
-    // 切换/进入角色时的「自然缓入」：整屏轻轻淡入 + 极小上浮，单一动作、不抢戏。
-    // transition 里一并保留背景过渡（inline 会盖掉 className 的 transition），免得换主题/壁纸时丢了原本的渐变。
-    const finalRootStyle: React.CSSProperties = {
-        ...baseRootStyle,
-        opacity: entered ? 1 : 0,
-        transform: entered ? 'translateY(0)' : 'translateY(6px)',
-        transition: 'opacity 450ms cubic-bezier(0.22,1,0.36,1), transform 450ms cubic-bezier(0.22,1,0.36,1), background-color 500ms, background-image 500ms',
-    };
+    // 进入/切换的过场由 CharacterEntryTransition 覆盖层负责，根容器不再自己做淡入。
+    const finalRootStyle = acnh ? acnhRootStyle : chatRootStyle;
     const chatAvatarSizeClass = osTheme.chatAvatarSize === 'small' ? 'w-7 h-7' : osTheme.chatAvatarSize === 'large' ? 'w-12 h-12' : 'w-9 h-9';
     const chatAvatarRadiusClass = osTheme.chatAvatarShape === 'square' ? 'rounded-sm' : osTheme.chatAvatarShape === 'rounded' ? 'rounded-xl' : 'rounded-full';
     const chatPendingAvatarClass = `${chatAvatarSizeClass} ${chatAvatarRadiusClass} object-cover`;
@@ -2037,6 +2026,16 @@ const Chat: React.FC = () => {
             className={finalRootClass}
             style={finalRootStyle}
         >
+             {/* 角色「登场」过场：切换/进入时以 ta 的头像氛围铺底登场，再推进穿过进入聊天。key 切换即重放。 */}
+             {showEntry && char && (
+               <CharacterEntryTransition
+                 key={activeCharacterId}
+                 name={char.name}
+                 avatar={char.avatar}
+                 onDone={() => setShowEntry(false)}
+               />
+             )}
+
              {activeTheme.customCss && <style>{activeTheme.customCss}</style>}
 
              {/* 动森彩蛋：作用域 CSS 覆盖气泡——奶油 AI 气泡 + 蜜桃用户气泡，暖棕文字，绕开 MessageItem 复杂逻辑 */}
