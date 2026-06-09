@@ -1,5 +1,6 @@
 import React from 'react';
 import { OSTheme } from '../../types';
+import ChromeCssEditor from '../chat/ChromeCssEditor';
 
 type Props = {
     theme: OSTheme;
@@ -148,49 +149,6 @@ const defaults = {
 
 const groupClass = 'rounded-3xl border border-slate-100 bg-white p-5 shadow-sm';
 
-// 白框自定义 CSS 快捷模板：点一下「追加」进编辑框。
-// 上排是几套完整风格（想换风格建议先「清空」再点）；下排是可叠加的小片段（贴图/挪位/开关/描金）。
-const CHROME_CSS_FULL_PRESETS: { name: string; code: string }[] = [
-    { name: '彩虹波浪', code: `.sully-chat-header{
-  position:relative;
-  background:repeating-linear-gradient(90deg,#ffd6ea 0 40px,#ffe8a3 40px 80px,#d7f5c5 80px 120px,#cfe7ff 120px 160px,#e6d2ff 160px 200px)!important;
-  border-bottom:none!important;
-  box-shadow:0 4px 12px rgba(0,0,0,.08),inset 0 -4px rgba(255,255,255,.4);
-  overflow:visible;
-}
-.sully-chat-header::after{content:"";position:absolute;left:0;right:0;bottom:-12px;height:24px;background:radial-gradient(circle at 12px 0,transparent 12px,rgba(255,255,255,.9) 13px);background-size:24px 24px;background-repeat:repeat-x;}
-.sully-chat-header::before{content:"";position:absolute;left:0;right:0;top:0;height:6px;background:repeating-linear-gradient(90deg,#c18b5b 0 20px,#b67d4f 20px 40px);}` },
-    { name: '霓虹夜', code: `.sully-chat-header{
-  background:#0e0b1e!important;
-  border-bottom:1px solid rgba(168,85,247,.45)!important;
-  box-shadow:0 0 26px rgba(168,85,247,.35);
-}
-.sully-chat-name{color:#e9d5ff!important;text-shadow:0 0 8px rgba(192,132,252,.9);}
-.sully-chat-status{color:#a78bfa!important;}
-.sully-chat-trigger,.sully-chat-back{color:#67e8f9!important;}` },
-    { name: '奶油渐变', code: `.sully-chat-header{
-  background:linear-gradient(135deg,#fff1f6,#fde7c9 55%,#e7f0ff)!important;
-  border-bottom:none!important;
-  box-shadow:0 6px 18px rgba(180,150,120,.14);
-  border-bottom-left-radius:20px;border-bottom-right-radius:20px;
-}` },
-    { name: '像素窗口', code: `.sully-chat-header{
-  position:relative;
-  background:#dfe7ef!important;
-  border:none!important;border-bottom:2px solid #8aa0b6!important;
-  box-shadow:inset 0 2px #fff,inset 0 -2px #b7c4d2;
-}
-.sully-chat-header::before{content:"● ● ●";position:absolute;left:14px;top:calc(var(--safe-top) + 6px);letter-spacing:4px;color:#ff6b6b;font-size:9px;}` },
-];
-const CHROME_CSS_SNIPPETS: { name: string; code: string }[] = [
-    { name: '头部贴图', code: '.sully-chat-header{background:url(在此粘贴图片直链) center/cover!important;border-bottom:none!important;}' },
-    { name: '头像放大', code: '.sully-chat-avatar{width:52px!important;height:52px!important;}' },
-    { name: '隐藏情绪栏', code: '.sully-chat-buffs{display:none!important;}' },
-    { name: '隐藏token', code: '.sully-chat-token{display:none!important;}' },
-    { name: '隐藏小闪电', code: '.sully-chat-trigger{display:none!important;}' },
-    { name: '闪电描金', code: '.sully-chat-trigger{color:#d4af37!important;filter:drop-shadow(0 0 4px rgba(212,175,55,.6));}' },
-    { name: '输入栏毛玻璃', code: '.sully-chat-inputbar{background:rgba(255,255,255,.45)!important;backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px);}' },
-];
 
 const choices = {
     chrome: [
@@ -563,58 +521,9 @@ export const ChatAppearanceEditor: React.FC<Props> = ({ theme, updateTheme }) =>
             <section className={groupClass}>
                 <div className="mb-1">
                     <h2 className="text-sm font-bold uppercase tracking-widest text-slate-400">白框自定义 (CSS)</h2>
-                    <p className="mt-1 text-[10px] leading-relaxed text-slate-400">
-                        直接写 CSS，自定义整块顶栏与白框——换色 / 贴图 / 圆角 / 不规则外形（clip-path）/ 挪位 / 显隐。
-                        可用选择器：<code className="mx-0.5 rounded bg-slate-100 px-1 text-slate-500">.sully-chat-header</code> 顶栏整块、
-                        <code className="mx-0.5 rounded bg-slate-100 px-1 text-slate-500">.sully-chat-back</code> 返回、
-                        <code className="mx-0.5 rounded bg-slate-100 px-1 text-slate-500">.sully-chat-avatar</code> 头像、
-                        <code className="mx-0.5 rounded bg-slate-100 px-1 text-slate-500">.sully-chat-name</code> 名字、
-                        <code className="mx-0.5 rounded bg-slate-100 px-1 text-slate-500">.sully-chat-status</code> 状态行、
-                        <code className="mx-0.5 rounded bg-slate-100 px-1 text-slate-500">.sully-chat-buffs</code> 情绪栏、
-                        <code className="mx-0.5 rounded bg-slate-100 px-1 text-slate-500">.sully-chat-token</code> token、
-                        <code className="mx-0.5 rounded bg-slate-100 px-1 text-slate-500">.sully-chat-trigger</code> 小闪电、
-                        <code className="mx-0.5 rounded bg-slate-100 px-1 text-slate-500">.sully-chat-inputbar</code> 输入栏、
-                        <code className="mx-0.5 rounded bg-slate-100 px-1 text-slate-500">.sully-chat-root</code> 整屏。
-                        挪位用 <code className="rounded bg-slate-100 px-1 text-slate-500">position:absolute</code>（顶栏已是 relative）；覆盖默认样式记得加 <code className="rounded bg-slate-100 px-1 text-slate-500">!important</code>。
-                    </p>
+                    <p className="mt-1 text-[10px] text-slate-400">全局默认，对所有聊天生效；想给单个角色单独定制，进该角色聊天 →「＋」菜单 →「白框」（角色单独的会叠加在全局之上）。</p>
                 </div>
-                <div className="mb-1.5 text-[9px] font-bold uppercase tracking-wider text-slate-400">完整风格（换风格建议先清空）</div>
-                <div className="mb-3 flex flex-wrap gap-1.5">
-                    {CHROME_CSS_FULL_PRESETS.map((p) => (
-                        <button
-                            key={p.name}
-                            onClick={() => updateTheme({ chatChromeCustomCss: (theme.chatChromeCustomCss ? theme.chatChromeCustomCss.trimEnd() + '\n\n' : '') + p.code })}
-                            className="rounded-lg border border-primary/30 bg-primary/10 px-2.5 py-1.5 text-[11px] font-bold text-primary transition-all hover:bg-primary/15 active:scale-95"
-                        >
-                            {p.name}
-                        </button>
-                    ))}
-                </div>
-                <div className="mb-1.5 text-[9px] font-bold uppercase tracking-wider text-slate-400">可叠加片段</div>
-                <div className="mb-3 flex flex-wrap gap-1.5">
-                    {CHROME_CSS_SNIPPETS.map((p) => (
-                        <button
-                            key={p.name}
-                            onClick={() => updateTheme({ chatChromeCustomCss: (theme.chatChromeCustomCss ? theme.chatChromeCustomCss.trimEnd() + '\n' : '') + p.code })}
-                            className="rounded-lg bg-slate-100 px-2.5 py-1.5 text-[11px] font-bold text-slate-600 transition-all hover:bg-slate-200 active:scale-95"
-                        >
-                            + {p.name}
-                        </button>
-                    ))}
-                </div>
-                <textarea
-                    value={theme.chatChromeCustomCss || ''}
-                    onChange={(e) => updateTheme({ chatChromeCustomCss: e.target.value })}
-                    placeholder={'/* 例如 */\n.sully-chat-header{\n  background: linear-gradient(135deg,#ffd9ec,#d9c7ff) !important;\n  border-bottom: none !important;\n}'}
-                    spellCheck={false}
-                    rows={6}
-                    className="w-full resize-y rounded-2xl border border-slate-700 bg-slate-900 p-4 font-mono text-xs leading-relaxed text-slate-200 outline-none focus:border-primary/50 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-                />
-                {theme.chatChromeCustomCss && (
-                    <button onClick={() => updateTheme({ chatChromeCustomCss: '' })} className="mt-2 text-[11px] font-semibold text-rose-400 hover:text-rose-500">
-                        清空自定义 CSS
-                    </button>
-                )}
+                <ChromeCssEditor value={theme.chatChromeCustomCss || ''} onChange={(css) => updateTheme({ chatChromeCustomCss: css })} />
             </section>
 
             <div className="px-2 pb-2 text-center text-[10px] leading-relaxed text-slate-400">

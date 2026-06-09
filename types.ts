@@ -1446,6 +1446,8 @@ export interface CharacterProfile {
    */
   htmlModeEnabled?: boolean;
   htmlModeCustomPrompt?: string;
+  /** 该角色专属的聊天「白框」自定义 CSS（叠加在全局 osTheme.chatChromeCustomCss 之上）。 */
+  chromeCustomCss?: string;
 
   /**
    * 思考过程展示（per-character / 会话级）。
