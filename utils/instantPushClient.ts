@@ -1085,6 +1085,10 @@ export async function sendInstantPushAndAwaitReply(
           businessError: ack.businessError,
         });
       },
+      // 请求体 gzip 上行：大 body 超阈值时压缩再发, worker 入口解压 —— iOS 上行 ~322KB
+      // 压到 ~50KB, 绕开「大 body 上传撑过超时被中间层掐」。上下文全量不变。线上契约见
+      // worker decodeGzipRequestBody。旧版库忽略此选项、明文发, 向后兼容。
+      compressRequest: true,
     });
 
     // amsg-client 2.5.0 的 .d.ts 是 JSDoc + JS, TS 推断 result.detail 时只看到必填的

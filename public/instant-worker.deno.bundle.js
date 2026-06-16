@@ -2726,14 +2726,16 @@ function classifyLLMOutput(text) {
 }
 
 // utils/instantWorkerVersion.ts
-var INSTANT_WORKER_VERSION = "2026-06-10";
+var INSTANT_WORKER_VERSION = "2026-06-16";
 
 // worker/instant-push/src/index.ts
 var MULTIPART_TRANSPORT = { enabled: true };
 var UTILITY_CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Token",
+  // X-Amsg-Request-Encoding: 大请求体 gzip 上行用的自定义头 (见 decodeGzipRequestBody)。
+  // 跨域带它会触发 CORS 预检, 必须放行, 否则浏览器拦请求。amsg-instant 库的预检不含它, 故 worker 自己回预检。
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Token, X-Amsg-Request-Encoding",
   "Access-Control-Max-Age": "86400"
 };
 var D1_BLOB_TABLE = "amsg_transient_blobs";
@@ -2804,16 +2806,28 @@ function startPostAbortHeartbeat(sessionId) {
   }, POST_ABORT_HEARTBEAT_MS);
   postAbortWatchers.set(sessionId, timer);
 }
+function flattenAmsgEvent(e) {
+  const cause = e.cause;
+  if (cause == null) return e;
+  return {
+    ...e,
+    cause: void 0,
+    causeName: cause?.name,
+    causeMessage: cause?.message ?? String(cause),
+    causeStatus: cause?.statusCode ?? cause?.status
+  };
+}
 function traceAmsgEvent(e) {
   if (e.type === "sse_stream_aborted" && typeof e.sessionId === "string") {
     startPostAbortHeartbeat(e.sessionId);
   }
+  const formatted = flattenAmsgEvent(e);
   if (ERROR_EVENT_TYPES.has(e.type)) {
-    console.error("[instant-push]", e);
+    console.error("[instant-push]", formatted);
     return;
   }
   if (TRACE_EVENT_TYPES.has(e.type)) {
-    console.log("[instant-push:trace]", e);
+    console.log("[instant-push:trace]", formatted);
   }
 }
 function parseBooleanFlag(value) {
@@ -3109,25 +3123,69 @@ async function runEmotionEval(body) {
     return "";
   }
 }
+function withSseAntiBufferingHeaders(resp) {
+  const contentType = resp.headers.get("content-type") || "";
+  if (!contentType.includes("text/event-stream")) return resp;
+  const headers = new Headers(resp.headers);
+  headers.set("Cache-Control", "no-cache, no-transform");
+  headers.set("X-Accel-Buffering", "no");
+  return new Response(resp.body, {
+    status: resp.status,
+    statusText: resp.statusText,
+    headers
+  });
+}
+async function decodeGzipRequestBody(request) {
+  if (request.headers.get("x-amsg-request-encoding") !== "gzip" || !request.body) {
+    return request;
+  }
+  const decompressed = await new Response(
+    request.body.pipeThrough(new DecompressionStream("gzip"))
+  ).arrayBuffer();
+  const headers = new Headers(request.headers);
+  headers.delete("x-amsg-request-encoding");
+  headers.delete("content-length");
+  return new Request(request.url, {
+    method: request.method,
+    headers,
+    body: decompressed
+  });
+}
 var src_default = {
   fetch: async (request, env, ctx) => {
     const url = new URL(request.url);
+    if (request.method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: UTILITY_CORS_HEADERS });
+    }
     if (url.pathname === "/version") {
       return handleVersionRequest(request);
     }
     if (url.pathname === "/capabilities" || url.pathname === "/health") {
       return handleCapabilitiesRequest(request, env);
     }
+    let decodedRequest;
+    try {
+      decodedRequest = await decodeGzipRequestBody(request);
+    } catch {
+      return new Response(JSON.stringify({ error: "Failed to decompress request body" }), {
+        status: 400,
+        headers: {
+          ...UTILITY_CORS_HEADERS,
+          "Content-Type": "application/json"
+        }
+      });
+    }
     let body = null;
     try {
-      body = await request.clone().json();
+      body = await decodedRequest.clone().json();
     } catch {
       body = null;
     }
     const requestedEnv = withRequestOversizeTransport({ ...env }, body);
     const workerEnv = await prepareBlobStoreEnv(requestedEnv);
     scheduleD1BlobCleanup(workerEnv, ctx);
-    return await cfWorker.fetch(request, workerEnv, ctx);
+    const resp = await cfWorker.fetch(decodedRequest, workerEnv, ctx);
+    return withSseAntiBufferingHeaders(resp);
   },
   async scheduled(_event, env) {
     const workerEnv = await prepareBlobStoreEnv(env);
