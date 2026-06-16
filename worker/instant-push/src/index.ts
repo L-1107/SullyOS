@@ -611,7 +611,18 @@ export default {
     }
 
     // 大请求体走 gzip 上行时, 入口先解压成普通 Request, 后面 .json() / cfWorker 全程无感。
-    const decodedRequest = await decodeGzipRequestBody(request);
+    let decodedRequest: Request;
+    try {
+      decodedRequest = await decodeGzipRequestBody(request);
+    } catch {
+      return new Response(JSON.stringify({ error: 'Failed to decompress request body' }), {
+        status: 400,
+        headers: {
+          ...UTILITY_CORS_HEADERS,
+          'Content-Type': 'application/json',
+        },
+      });
+    }
 
     let body: any = null;
     try {

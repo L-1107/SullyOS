@@ -3163,7 +3163,18 @@ var src_default = {
     if (url.pathname === "/capabilities" || url.pathname === "/health") {
       return handleCapabilitiesRequest(request, env);
     }
-    const decodedRequest = await decodeGzipRequestBody(request);
+    let decodedRequest;
+    try {
+      decodedRequest = await decodeGzipRequestBody(request);
+    } catch {
+      return new Response(JSON.stringify({ error: "Failed to decompress request body" }), {
+        status: 400,
+        headers: {
+          ...UTILITY_CORS_HEADERS,
+          "Content-Type": "application/json"
+        }
+      });
+    }
     let body = null;
     try {
       body = await decodedRequest.clone().json();
