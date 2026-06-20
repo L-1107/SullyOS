@@ -1248,13 +1248,36 @@ Format:
                 </>
             )}
 
-            {/* InnerState 全文 */}
-            <Modal isOpen={showInner} title="TA 此刻的内心" onClose={() => setShowInner(false)}>
-                <p className="text-[14px] leading-loose text-slate-600 whitespace-pre-wrap" style={{ fontFamily: "'Shippori Mincho','Noto Sans SC',serif" }}>
-                    {innerQuote}
-                </p>
-                <p className="text-[10px] text-slate-400 mt-4 pt-3 border-t border-slate-100">这是 TA 最近一次说完话后，脑海里真正转过的念头。</p>
-            </Modal>
+            {/* InnerState 全文 —— 「此刻内心」专属卡片 */}
+            {showInner && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 animate-fade-in">
+                    <div className="absolute inset-0 bg-black/40" onClick={() => setShowInner(false)} />
+                    <div className="relative w-full max-w-sm bg-white rounded-[2.5rem] shadow-2xl overflow-hidden animate-slide-up">
+                        {/* 标题 + 星点 */}
+                        <div className="px-6 pt-7 pb-3 flex items-center justify-center gap-2.5">
+                            <span className="flex items-end gap-0.5 text-[#b3c2f6]"><span className="w-1 h-1 rounded-full bg-current" /><span className="w-1.5 h-1.5 rounded-full bg-current" /><span className="w-1 h-1 rounded-full bg-current mb-1" /></span>
+                            <h3 className="text-lg font-bold text-slate-800">TA 此刻的内心</h3>
+                            <span className="flex items-end gap-0.5 text-[#b3c2f6]"><span className="w-1 h-1 rounded-full bg-current mb-1" /><span className="w-1.5 h-1.5 rounded-full bg-current" /><span className="w-1 h-1 rounded-full bg-current" /></span>
+                        </div>
+                        {/* 引文面板 */}
+                        <div className="px-6 pb-2">
+                            <div className="relative bg-slate-50 rounded-3xl px-5 pt-7 pb-5 max-h-[52vh] overflow-y-auto no-scrollbar">
+                                <span className="absolute top-2 left-4 text-[42px] leading-none font-black select-none pointer-events-none" style={{ color: '#5f82ef' }}>“</span>
+                                <p className="relative text-[14.5px] leading-[2] text-slate-600 whitespace-pre-wrap px-2" style={{ fontFamily: "'Shippori Mincho','Noto Sans SC',serif" }}>
+                                    {innerQuote}
+                                </p>
+                                <span className="block text-right text-[42px] leading-none font-black select-none pointer-events-none pr-2" style={{ color: '#5f82ef' }}>”</span>
+                            </div>
+                        </div>
+                        {/* 关闭 */}
+                        <div className="px-6 pb-6 pt-3">
+                            <button onClick={() => setShowInner(false)}
+                                className="w-full py-3.5 rounded-2xl text-white font-bold active:scale-[0.99] transition"
+                                style={{ background: '#5f82ef' }}>关闭</button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Create App Modal */}
             <Modal isOpen={showCreateModal} title="安装自定义 App" onClose={() => setShowCreateModal(false)}
