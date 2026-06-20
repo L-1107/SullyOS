@@ -8,6 +8,7 @@ import { safeResponseJson } from '../utils/safeApi';
 import { injectMemoryPalace } from '../utils/memoryPalace/pipeline';
 import PersonaSim, { LifeLog, generatePersonaScript } from './PersonaSim';
 import { usePersonaSim, personaSimStore } from '../utils/personaSimStore';
+import { getLastInnerState } from '../utils/emotionApply';
 import {
     User, Phone, ChatCircleDots, ChatCircle, ShoppingBag, Hamburger, Compass, GearSix,
     Plus, SignOut, CaretLeft, CaretRight, Cloud, ImagesSquare, LockSimple, Package,
@@ -144,6 +145,7 @@ const CheckPhone: React.FC = () => {
 
     // 人格模拟：演出脚本在全局 store 后台生成，生成期间用户可离开查手机/切到别的 OS App
     const sim = usePersonaSim();
+    const [showInner, setShowInner] = useState(false);
 
     // Swipe tracking for paging
     const touchStartX = useRef<number | null>(null);
@@ -193,6 +195,16 @@ const CheckPhone: React.FC = () => {
         setTargetChar(null);
         setActiveAppId('home');
         setPage(0);
+    };
+
+    // 切换「查手机内容是否同步到私聊」（默认开）
+    const toggleSendToChat = () => {
+        if (!targetChar) return;
+        const next = !(targetChar.phoneState?.sendToChat !== false);
+        updateCharacter(targetChar.id, {
+            phoneState: { ...targetChar.phoneState, records: targetChar.phoneState?.records || [], sendToChat: next },
+        });
+        addToast(next ? '已开启 · 查手机内容会同步到私聊' : '已关闭 · 查手机内容仅本地可见', 'info');
     };
 
     // 打开 Messages：把已读时间戳推到现在 → 清掉未读红点
@@ -366,27 +378,30 @@ ${layoutHint[layout || 'generic']}`;
 
             const newRecordsToAdd: PhoneEvidence[] = [];
 
+            // 是否把查手机内容同步到私聊（默认开），关闭则只存本地、不进聊天/上下文
+            const pushToChat = targetChar.phoneState?.sendToChat !== false;
+
             if (Array.isArray(json)) {
                 for (const item of json) {
                     const recordTitle = item.title || 'Unknown';
                     const recordDetail = item.detail || '...';
 
-                    let sysMsgContent = "";
-                    if (type === 'chat') {
-                        sysMsgContent = `[系统: ${targetChar.name} 与 "${recordTitle}" 的聊天记录-内容涉及: ${recordDetail.replace(/\n/g, ' ')}]`;
-                    } else {
-                        sysMsgContent = `[系统: ${targetChar.name}的手机(${logPrefix}) 显示: ${recordTitle} - ${recordDetail}]`;
+                    let savedMsgId: number | undefined;
+                    if (pushToChat) {
+                        // 包装成上下文可读的漂亮卡片（phone_card），不再是古早的 [系统:...] 纯文本
+                        const cardContent = type === 'chat'
+                            ? `[在 TA 手机的聊天软件里看到与「${recordTitle}」的对话] ${recordDetail.replace(/\n/g, ' ')}`
+                            : `[在 TA 手机的${logPrefix}里看到] ${recordTitle}${item.value ? ` · ${item.value}` : ''} — ${recordDetail}`;
+                        await DB.saveMessage({
+                            charId: targetChar.id,
+                            role: 'assistant',
+                            type: 'phone_card',
+                            content: cardContent,
+                            metadata: { phoneCard: { app: logPrefix, kind: type, title: recordTitle, detail: recordDetail, value: item.value } },
+                        } as any);
+                        const currentMsgs = await DB.getMessagesByCharId(targetChar.id);
+                        savedMsgId = currentMsgs[currentMsgs.length - 1]?.id;
                     }
-
-                    await DB.saveMessage({
-                        charId: targetChar.id,
-                        role: 'system',
-                        type: 'text',
-                        content: sysMsgContent
-                    });
-
-                    const currentMsgs = await DB.getMessagesByCharId(targetChar.id);
-                    const savedMsg = currentMsgs[currentMsgs.length - 1];
 
                     newRecordsToAdd.push({
                         id: `rec-${Date.now()}-${Math.random()}`,
@@ -395,7 +410,7 @@ ${layoutHint[layout || 'generic']}`;
                         detail: recordDetail,
                         value: item.value,
                         timestamp: Date.now(),
-                        systemMessageId: savedMsg?.id
+                        systemMessageId: savedMsgId
                     });
 
                     await new Promise(r => setTimeout(r, 50));
@@ -518,6 +533,8 @@ Format:
     const deliveryRecords = records.filter(r => r.type === 'delivery');
     const socialRecords = records.filter(r => r.type === 'social');
     const simLogCount = targetChar?.phoneState?.simLogs?.length || 0;
+    const sendToChat = targetChar?.phoneState?.sendToChat !== false; // 默认开
+    const lastInner = targetChar ? getLastInnerState(targetChar.id) : '';
     const lastTs = allSorted[0]?.timestamp;
 
     const appLabel = (type: string): string => {
@@ -578,7 +595,8 @@ Format:
     const now = new Date();
     const clockNow = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
     const dateNow = now.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
-    const quote = targetChar?.socialProfile?.bio || '“有些话，隔着屏幕，反而更接近真实。”';
+    const fallbackQuote = targetChar?.socialProfile?.bio || '“有些话，隔着屏幕，反而更接近真实。”';
+    const innerQuote = lastInner.trim();
 
     // ============================================================
     //  SUB-APPS
@@ -941,8 +959,15 @@ Format:
                 <div className="text-[12px] text-white/45 mt-0.5">{dateNow}</div>
             </div>
 
-            {/* Quote */}
-            <p className="text-[13px] text-white/55 italic mb-5 leading-relaxed">{quote}</p>
+            {/* Quote：有最近的内心独白(InnerState)就显示它（一行截断，点按看全文），否则兜底诗句 */}
+            {innerQuote ? (
+                <button onClick={() => setShowInner(true)} className="block w-full text-left mb-5 group">
+                    <p className="text-[13px] text-white/65 italic leading-relaxed line-clamp-1">「{innerQuote}」</p>
+                    <span className="text-[9px] tracking-wider text-white/30 group-active:text-white/55 uppercase">TA 此刻的内心 · 点按展开</span>
+                </button>
+            ) : (
+                <p className="text-[13px] text-white/55 italic mb-5 leading-relaxed">{fallbackQuote}</p>
+            )}
 
             {/* Persona simulation hero */}
             <button onClick={() => setActiveAppId('persona')}
@@ -1151,8 +1176,12 @@ Format:
                         <button onClick={() => setActiveAppId('social')} className="flex items-center justify-center text-white/70 p-2.5 hover:text-white rounded-2xl transition active:scale-90">
                             <Compass size={22} weight="light" />
                         </button>
-                        <button onClick={() => setShowCreateModal(true)} className="flex items-center justify-center text-white/70 p-2.5 hover:text-white rounded-2xl transition active:scale-90">
-                            <GearSix size={22} weight="light" />
+                        <button onClick={toggleSendToChat} aria-label="同步到私聊"
+                            className="relative flex items-center justify-center p-2.5 hover:text-white rounded-2xl transition active:scale-90"
+                            style={{ color: sendToChat ? '#7dd3fc' : 'rgba(255,255,255,0.4)' }}>
+                            <GearSix size={22} weight={sendToChat ? 'fill' : 'light'} />
+                            <span className="absolute bottom-1 right-1.5 w-1.5 h-1.5 rounded-full"
+                                style={{ background: sendToChat ? '#7dd3fc' : 'rgba(255,255,255,0.25)', boxShadow: sendToChat ? '0 0 6px #7dd3fc' : 'none' }} />
                         </button>
                     </div>
                 </nav>
@@ -1218,6 +1247,14 @@ Format:
                     {customActive && renderCustomApp(customActive)}
                 </>
             )}
+
+            {/* InnerState 全文 */}
+            <Modal isOpen={showInner} title="TA 此刻的内心" onClose={() => setShowInner(false)}>
+                <p className="text-[14px] leading-loose text-slate-600 whitespace-pre-wrap" style={{ fontFamily: "'Shippori Mincho','Noto Sans SC',serif" }}>
+                    {innerQuote}
+                </p>
+                <p className="text-[10px] text-slate-400 mt-4 pt-3 border-t border-slate-100">这是 TA 最近一次说完话后，脑海里真正转过的念头。</p>
+            </Modal>
 
             {/* Create App Modal */}
             <Modal isOpen={showCreateModal} title="安装自定义 App" onClose={() => setShowCreateModal(false)}
