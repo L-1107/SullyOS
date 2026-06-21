@@ -629,7 +629,7 @@ const MoodThought: React.FC<{ text: string; vibe?: Vibe }> = ({ text, vibe = 'ca
                             transform: `rotate(${(rnd(i + 3) - 0.5) * 30}deg)`,
                             fontSize: `${13 + rnd(i + 5) * 14}px`,
                             opacity: 0.35 + rnd(i + 9) * 0.6,
-                            color: 'white', fontFamily: "'Shippori Mincho','Noto Sans SC',serif",
+                            color: 'white',
                             animationDelay: `${i * 90}ms`, animationFillMode: 'backwards',
                             textShadow: '0 1px 8px rgba(0,0,0,0.5)',
                         }}>
@@ -651,7 +651,7 @@ const MoodThought: React.FC<{ text: string; vibe?: Vibe }> = ({ text, vibe = 'ca
                     }}>{d}</span>
                 ))}
                 <p className="text-[20px] text-center leading-relaxed animate-fade-in font-semibold"
-                    style={{ background: 'linear-gradient(90deg,#ffd6ec,#ffb3d9,#ffc2e0)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', fontFamily: "'Shippori Mincho','Noto Sans SC',serif" }}>
+                    style={{ color: vibeTint.happy }}>
                     {text}
                 </p>
             </div>
@@ -661,7 +661,7 @@ const MoodThought: React.FC<{ text: string; vibe?: Vibe }> = ({ text, vibe = 'ca
         return (
             <div className="absolute inset-0 flex items-center justify-center px-10">
                 <p className="text-[18px] text-center leading-relaxed tracking-tight animate-pulse"
-                    style={{ color: vibeTint.anxious, fontFamily: "'Shippori Mincho','Noto Sans SC',serif", textShadow: '0 0 12px rgba(255,80,80,0.3)' }}>
+                    style={{ color: vibeTint.anxious, textShadow: '0 0 12px rgba(255,80,80,0.3)' }}>
                     {text}
                 </p>
             </div>
