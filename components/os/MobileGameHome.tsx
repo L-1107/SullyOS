@@ -46,15 +46,6 @@ const FONT_DISPLAY = `'DM Serif Display', serif`;     // 大时钟 / Lv / 日期
 const FONT_CN = `'ZCOOL KuaiLe', 'Noto Sans SC', sans-serif`; // 中文圆润可爱
 const FONT_SCRIPT = `'Caveat', cursive`;              // 问候手写
 
-const hashStr = (s: string): number => {
-    let h = 2166136261;
-    for (let i = 0; i < s.length; i++) {
-        h ^= s.charCodeAt(i);
-        h = Math.imul(h, 16777619);
-    }
-    return h >>> 0;
-};
-
 const QUICK_ENTRIES: { id: AppID; cn: string }[] = [
     { id: AppID.Character, cn: '神经链接' },
     { id: AppID.MemoryPalace, cn: '记忆宫殿' },
@@ -132,6 +123,7 @@ const MobileGameHome: React.FC = () => {
 
     const [widgetChar, setWidgetChar] = useState<CharacterProfile | null>(null);
     const [lastMessage, setLastMessage] = useState<string>('');
+    const [stat, setStat] = useState({ msgCount: 0, firstTs: 0 });
     const [drawerOpen, setDrawerOpen] = useState(false);
 
     const [devDebugVisible, setDevDebugVisible] = useState(() => isDevDebugAvailable());
@@ -142,12 +134,15 @@ const MobileGameHome: React.FC = () => {
         if (!characters || characters.length === 0) {
             setWidgetChar(null);
             setLastMessage('');
+            setStat({ msgCount: 0, firstTs: 0 });
             return;
         }
         const target = characters.find(c => c.id === activeCharacterId) || characters[0];
         setWidgetChar(target);
         DB.getMessagesByCharId(target.id).then(msgs => {
             const visible = msgs.filter(m => m.role !== 'system');
+            // 真实数值来源：聊天消息数（Lv/EXP/钻石）+ 最早消息时间（认识天数→星星）
+            setStat({ msgCount: visible.length, firstTs: visible[0]?.timestamp || 0 });
             if (visible.length > 0) {
                 const last = visible[visible.length - 1];
                 const clean = last.content.replace(/\[.*?\]/g, '').trim();
@@ -163,15 +158,20 @@ const MobileGameHome: React.FC = () => {
         [unreadMessages]
     );
 
+    // 真实数值：等级/经验来自聊天消息数（每条 10 exp，升级所需随等级递增的三角曲线）；
+    // 钻石 = 聊天热度（消息数×5）；星星 = 认识天数（从最早一条消息算起）。
     const stats = useMemo(() => {
-        const seed = hashStr(widgetChar?.id || 'sullyos');
-        const level = 1 + (seed % 60);
-        const expMax = 1200 + level * 200;
-        const exp = 800 + ((seed >> 3) % (expMax - 800));
-        const gems = 500 + ((seed >> 5) % 9000);
-        const stars = 20 + ((seed >> 7) % 480);
-        return { level, exp, expMax, gems, stars };
-    }, [widgetChar?.id]);
+        const msgCount = stat.msgCount;
+        const totalExp = msgCount * 10;
+        const base = 150; // 第 L 级所需经验 = base×L，累计为三角数
+        const level = Math.max(1, Math.floor((1 + Math.sqrt(1 + (8 * totalExp) / base)) / 2));
+        const need = (base * level * (level - 1)) / 2;
+        const exp = Math.max(0, Math.round(totalExp - need));
+        const expMax = base * level;
+        const gems = msgCount * 5;
+        const daysKnown = stat.firstTs ? Math.max(1, Math.floor((Date.now() - stat.firstTs) / 86400000) + 1) : 1;
+        return { level, exp, expMax, gems, stars: daysKnown };
+    }, [stat]);
 
     const greeting = virtualTime.hours < 5 ? 'Good Night'
         : virtualTime.hours < 12 ? 'Good Morning'
