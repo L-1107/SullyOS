@@ -136,8 +136,8 @@ const CHAT_LAYOUT_COMBOS: { name: string; desc: string; config: Partial<OSTheme>
 // --- 桌面整机风格（皮肤）---
 // 动森壁纸：NookPhone 同款奶油底（#F8F4E8），底部极淡草色透气。纯 CSS 渐变，让彩色图标平铺更跳。
 const ACNH_WALLPAPER = 'linear-gradient(180deg, #F8F4E8 0%, #F3EFDD 58%, #E6EECE 100%)';
-// 手游主题壁纸：「硝子色の街」浅色玻璃蓝灰雾感。纯 CSS 渐变，呼应复古优雅氛围（重返未来1999 风味）。
-const MOBILEGAME_WALLPAPER = 'radial-gradient(120% 85% at 50% 0%, #eef5f5 0%, #dfeaeb 38%, #c7d8df 72%, #a5bec1 100%)';
+// 手游主题壁纸：梦幻粉紫渐变。纯 CSS，呼应二次元手游首页氛围。
+const MOBILEGAME_WALLPAPER = 'radial-gradient(110% 75% at 80% 0%, #f7d9ec 0%, transparent 55%), radial-gradient(110% 80% at 10% 15%, #d9d4f5 0%, transparent 55%), linear-gradient(180deg, #f1ebfb 0%, #ece4f7 45%, #e7def4 72%, #ddd0f0 100%)';
 
 const DESKTOP_SKINS: { id: string; name: string; desc: string; swatch: string; config: Partial<OSTheme> }[] = [
   {
@@ -160,16 +160,16 @@ const DESKTOP_SKINS: { id: string; name: string; desc: string; swatch: string; c
   {
     id: 'mobilegame',
     name: '手游风格',
-    desc: '硝子色の街 · 浅色玻璃蓝灰 · 复古优雅手游首页',
-    swatch: 'linear-gradient(135deg,#dfeaeb 0%,#a5bec1 55%,#81959f 100%)',
+    desc: '梦幻粉紫二次元手游首页 · 星芒满屏 · 圆润可爱',
+    swatch: 'linear-gradient(135deg,#f7d9ec 0%,#d9d4f5 55%,#a8b8e8 100%)',
     config: {
       skin: 'mobilegame',
-      hue: 198, saturation: 18, lightness: 55,
-      contentColor: '#243237',
+      hue: 270, saturation: 45, lightness: 70,
+      contentColor: '#6b5b95',
       wallpaper: MOBILEGAME_WALLPAPER,
       chatAvatarShape: 'circle', chatAvatarSize: 'medium',
       chatBubbleStyle: 'modern', chatMessageSpacing: 'default',
-      chatHeaderStyle: 'minimal', chatInputStyle: 'rounded',
+      chatHeaderStyle: 'gradient', chatInputStyle: 'rounded',
       chatChromeStyle: 'soft', chatBackgroundStyle: 'paper',
       chatShowTimestamp: 'hover',
     },
