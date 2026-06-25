@@ -33,7 +33,7 @@ import { useChatAI } from '../hooks/useChatAI';
 import { cleanTextForTts, parseVoiceOutput } from '../utils/minimaxTts';
 import { synthesizeSpeechDetailed, characterHasVoice } from '../utils/ttsRouter';
 import { resolveMiniMaxApiKey } from '../utils/minimaxApiKey';
-import { resolveFishAudioApiKey, stripFishMarkupForDisplay } from '../utils/fishAudioTts';
+import { resolveFishAudioApiKey, stripFishMarkupForDisplay, cleanTextForTtsFish } from '../utils/fishAudioTts';
 import { resolveTtsProvider } from '../utils/ttsProvider';
 import { isInstantConfigReady, loadInstantConfig } from '../utils/instantPushClient';
 
@@ -362,9 +362,16 @@ const Chat: React.FC = () => {
                     spokenText = langAText;
                     originalText = langBText || '';
                 } else {
-                    originalText = cleanTextForTts(msg.content);
-                    if (!originalText || originalText.length < 2) return;
-                    spokenText = originalText;
+                    // 鱼声：保留 inline cue 送 API，显示侧剥掉；MiniMax：照旧。
+                    if (isFishTts) {
+                        spokenText = cleanTextForTtsFish(msg.content);
+                        if (!spokenText || spokenText.length < 2) return;
+                        originalText = stripFishMarkupForDisplay(spokenText) || spokenText;
+                    } else {
+                        originalText = cleanTextForTts(msg.content);
+                        if (!originalText || originalText.length < 2) return;
+                        spokenText = originalText;
+                    }
                     if (voiceLang) {
                         const langLabel = VOICE_LANG_LABELS[voiceLang] || voiceLang;
                         try {
