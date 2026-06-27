@@ -298,6 +298,8 @@ const CheckPhone: React.FC = () => {
     const [aiMenu, setAiMenu] = useState<{ kind: 'session' | 'card'; id: string } | null>(null);
     const [aiEdit, setAiEdit] = useState<{ kind: 'session' | 'card'; id: string; title?: string; name?: string; emoji?: string; persona?: string; scenario?: string; cardKind?: 'character' | 'world' } | null>(null);
     const [aiCardView, setAiCardView] = useState<string | null>(null); // 点击角色卡：看 TA 用这张玩过哪些
+    const [aiTurnMenu, setAiTurnMenu] = useState<number | null>(null);          // 长按会话里某条内容：动作菜单（编辑/删除）
+    const [aiTurnEdit, setAiTurnEdit] = useState<{ idx: number; text: string } | null>(null);
     const [tavernStyle, setTavernStyle] = useState<string>(() => { try { return localStorage.getItem('cp_tavern_style') || 'dark'; } catch { return 'dark'; } });
     const [showTavernStyle, setShowTavernStyle] = useState(false); // 酒馆皮肤选择面板
     useEffect(() => { try { localStorage.setItem('cp_tavern_style', tavernStyle); } catch {} }, [tavernStyle]);
@@ -307,6 +309,7 @@ const CheckPhone: React.FC = () => {
         onPointerDown: () => { lpFired.current = false; lpTimer.current = setTimeout(() => { lpFired.current = true; onLong(); }, 480); },
         onPointerUp: () => clearTimeout(lpTimer.current),
         onPointerLeave: () => clearTimeout(lpTimer.current),
+        onPointerMove: () => clearTimeout(lpTimer.current), // 滚动时不误触
         onContextMenu: (e: React.MouseEvent) => { e.preventDefault(); lpFired.current = true; onLong(); },
     });
 
@@ -1149,6 +1152,36 @@ ${olderText}
             },
         }));
         if (selectedAiSessionId === id) { setSelectedAiSessionId(null); setActiveAppId('aiagent'); }
+    };
+
+    // 会话内单条内容的"轮次"：酒馆按楼层(合并连续同说话人)，助手/树洞按行——与渲染里一致
+    const turnsOf = (s: AiSession): { isMe: boolean; text: string }[] => {
+        const lines = parseTranscript(s.transcript);
+        if (s.service !== 'tavern') return lines;
+        const floors: { isMe: boolean; text: string }[] = [];
+        for (const ln of lines) {
+            const prev = floors[floors.length - 1];
+            if (prev && prev.isMe === ln.isMe) prev.text += '\n' + ln.text;
+            else floors.push({ isMe: ln.isMe, text: ln.text });
+        }
+        return floors;
+    };
+    // 长按编辑会话里的某条内容
+    const handleSaveAiTurn = () => {
+        const s = selectedAiSession;
+        if (!s || !aiTurnEdit) return;
+        const turns = turnsOf(s);
+        if (!turns[aiTurnEdit.idx]) { setAiTurnEdit(null); return; }
+        turns[aiTurnEdit.idx] = { ...turns[aiTurnEdit.idx], text: aiTurnEdit.text };
+        patchAiSession(s.id, (x) => ({ ...x, transcript: serializeTurns(turns), updatedAt: Date.now() }));
+        setAiTurnEdit(null);
+        addToast('已保存', 'success');
+    };
+    const handleDeleteAiTurn = (idx: number) => {
+        const s = selectedAiSession;
+        if (!s) return;
+        const turns = turnsOf(s).filter((_, i) => i !== idx);
+        patchAiSession(s.id, (x) => ({ ...x, transcript: serializeTurns(turns), updatedAt: Date.now() }));
     };
 
     const handleDeleteAiCard = (id: string) => {
@@ -2364,7 +2397,7 @@ ${olderText}
                         const who = f.isMe ? charName : partnerName;
                         if (tStyle.layout === 'flat') {
                             return (
-                                <div key={i} className="px-1 py-1.5">
+                                <div key={i} {...longPress(() => setAiTurnMenu(i))} className="px-1 py-1.5 select-none">
                                     <div className="flex items-center gap-1.5 mb-1">
                                         <span className="text-[12px] font-semibold" style={{ color: f.isMe ? t.accent : t.text }}>{who}</span>
                                         {f.isMe && <span className="text-[9px]" style={{ color: t.sub }}>· 玩家</span>}
@@ -2374,7 +2407,7 @@ ${olderText}
                             );
                         }
                         return (
-                            <div key={i} className="rounded-2xl p-3.5"
+                            <div key={i} {...longPress(() => setAiTurnMenu(i))} className="rounded-2xl p-3.5 select-none"
                                 style={{ background: f.isMe ? `${t.accent}10` : 'rgba(255,255,255,0.04)', border: `1px solid ${hairline}` }}>
                                 <div className="flex items-center gap-2 mb-2">
                                     <div className="w-7 h-7 rounded-lg flex items-center justify-center overflow-hidden shrink-0"
@@ -2390,7 +2423,7 @@ ${olderText}
                     }) : lines.map((m, i) => {
                         const bare = !m.isMe && t.aiBg === 'transparent'; // ChatGPT/Claude：AI 不用气泡，整段铺开
                         return (
-                            <div key={i} className={`flex items-end gap-2 ${m.isMe ? 'justify-end' : 'justify-start'}`}>
+                            <div key={i} {...longPress(() => setAiTurnMenu(i))} className={`flex items-end gap-2 select-none ${m.isMe ? 'justify-end' : 'justify-start'}`}>
                                 {!m.isMe && (
                                     <div className="w-8 h-8 rounded-full flex items-center justify-center text-base shrink-0 overflow-hidden"
                                         style={{ background: aiAvatarBg, border: `1px solid ${hairline}` }}>
@@ -3203,6 +3236,38 @@ ${olderText}
                     </div>
                 );
             })()}
+
+            {/* 智能体 · 会话内单条内容 长按动作菜单（编辑 / 删除） */}
+            {aiTurnMenu !== null && selectedAiSession && (() => {
+                const turns = turnsOf(selectedAiSession);
+                const turn = turns[aiTurnMenu];
+                if (!turn) return null;
+                const preview = turn.text.replace(/\n/g, ' ').trim().slice(0, 22);
+                return (
+                    <div className="fixed inset-0 z-[120] flex items-end justify-center animate-fade-in" onClick={() => setAiTurnMenu(null)}>
+                        <div className="absolute inset-0 bg-black/50" />
+                        <div className="relative w-full max-w-sm m-3 mb-6 space-y-2" onClick={e => e.stopPropagation()}>
+                            <div className="rounded-2xl overflow-hidden bg-[#1c1d22] border border-white/10">
+                                <div className="px-4 py-2.5 text-[12px] text-white/50 border-b border-white/10 truncate">这条内容：{preview}…</div>
+                                <button onClick={() => { setAiTurnEdit({ idx: aiTurnMenu, text: turn.text }); setAiTurnMenu(null); }}
+                                    className="w-full px-4 py-3.5 text-left text-[14px] text-white active:bg-white/5 transition flex items-center gap-3"><PencilSimple size={17} /> 编辑</button>
+                                <button onClick={() => { const idx = aiTurnMenu; setAiTurnMenu(null); askConfirm({ title: '删除这条内容？', desc: '只删这一条对话/楼层，无法撤销。', confirmLabel: '删除', danger: true, onConfirm: () => handleDeleteAiTurn(idx) }); }}
+                                    className="w-full px-4 py-3.5 text-left text-[14px] text-rose-400 active:bg-white/5 transition flex items-center gap-3 border-t border-white/10"><Trash size={17} /> 删除</button>
+                            </div>
+                            <button onClick={() => setAiTurnMenu(null)} className="w-full rounded-2xl bg-[#1c1d22] border border-white/10 py-3.5 text-[14px] font-semibold text-white/80">取消</button>
+                        </div>
+                    </div>
+                );
+            })()}
+
+            {/* 智能体 · 会话内单条内容 编辑弹窗 */}
+            <Modal isOpen={!!aiTurnEdit} title="编辑这条内容" onClose={() => setAiTurnEdit(null)}
+                footer={<button onClick={handleSaveAiTurn} className="w-full py-3 bg-violet-500 text-white font-bold rounded-2xl">保存</button>}>
+                {aiTurnEdit && (
+                    <textarea value={aiTurnEdit.text} onChange={e => setAiTurnEdit({ ...aiTurnEdit, text: e.target.value })}
+                        className="w-full h-48 bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm resize-none leading-relaxed" />
+                )}
+            </Modal>
 
             {/* 智能体 · 编辑弹窗 */}
             <Modal isOpen={!!aiEdit} title={aiEdit?.kind === 'session' ? '编辑会话' : aiEdit?.id === '__new__' ? '新建角色卡' : '编辑角色卡'} onClose={() => setAiEdit(null)}
